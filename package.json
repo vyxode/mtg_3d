@@ -16,7 +16,8 @@
     "e2e": "playwright test",
     "check": "pnpm typecheck && pnpm lint && pnpm test",
     "db:up": "docker compose -f infra/docker-compose.yml --env-file .env up -d",
-    "db:down": "docker compose -f infra/docker-compose.yml --env-file .env down"
+    "db:down": "docker compose -f infra/docker-compose.yml --env-file .env down",
+    "cards:sync": "pnpm --filter @mtg3d/server cards:sync"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

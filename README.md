@@ -13,9 +13,9 @@ Proyecto de fans, no oficial y sin ánimo de lucro. Magic: The Gathering y sus i
 | A — Base del proyecto | Hecho |
 | D1 — Núcleo del motor | Hecho: turnos, prioridad, pila, combate, acciones basadas en estado, mulligan |
 | E1 — Esqueleto jugable | Hecho: salas con código, servidor autoritativo, proyección por jugador, reconexión, auto-pase, interfaz 2D de depuración |
-| D2a — Palabras clave y disparadas | Hecho: 12 palabras clave de combate, disparadas al entrar y al morir con APNAP; 37 cartas, 4 mazos predefinidos |
-| B — Biblioteca (Scryfall) | Imágenes por nombre; la importación completa a PostgreSQL queda pendiente |
-| D2b, C, F, D3, G, H | Pendiente |
+| D2a/D2b — Reglas | Hecho: 12 palabras clave, disparadas, activadas, estáticas, fichas, contadores, planeswalkers, tierras dobles y de choque, leyendas; 55 cartas, 5 mazos |
+| B — Biblioteca (Scryfall) | Hecho: `pnpm cards:sync` importa todo Scryfall; búsqueda por filtros en `/api/cards` ([ADR 0002](docs/adr/0002-catalogo-en-memoria.md)) |
+| C, F, D3, G, H | Pendiente |
 
 ## Jugar ya (interfaz 2D de depuración)
 
@@ -25,11 +25,12 @@ Requisitos: Node.js 22 (`.nvmrc`) y pnpm 10 (`corepack enable`).
 pnpm install
 pnpm build      # compila la web
 pnpm start      # servidor de juego + web en http://localhost:3001
+pnpm cards:sync # opcional: descarga el catálogo completo de Scryfall (necesita internet)
 ```
 
 1. Abre `http://localhost:3001`, escribe tu nombre y pulsa **Crear sala**.
 2. Pasa el código de 6 letras a tu amigo; él entra en la misma dirección, escribe el código y pulsa **Unirse**.
-3. Cada uno elige uno de los dos mazos predefinidos de 60 cartas.
+3. Cada uno elige uno de los mazos predefinidos de 60 cartas.
 
 Para jugar desde otro ordenador, tu amigo necesita llegar a tu puerto 3001: misma red local (usa tu IP en vez de `localhost`) o un túnel como Cloudflare Tunnel. El despliegue definitivo es la fase H.
 

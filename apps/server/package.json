@@ -7,14 +7,16 @@
     "dev": "tsx watch src/main.ts",
     "start": "tsx src/main.ts",
     "typecheck": "tsc -p tsconfig.json",
-    "test": "vitest run"
+    "test": "vitest run",
+    "cards:sync": "tsx src/sync-cards.ts"
   },
   "dependencies": {
     "@mtg3d/cards": "workspace:*",
     "@mtg3d/engine": "workspace:*",
     "@mtg3d/protocol": "workspace:*",
     "socket.io": "^4.8.4",
-    "tsx": "^4.23.15"
+    "tsx": "^4.23.15",
+    "zod": "^4.6.7"
   },
   "devDependencies": {
     "socket.io-client": "^4.8.4"
