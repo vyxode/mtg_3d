@@ -9,7 +9,7 @@ type Client = Socket<ServerToClient, ClientToServer> & { last?: GameUpdate; room
 let server: RunningServer;
 const clients: Client[] = [];
 
-beforeEach(async () => { server = await startServer(0); });
+beforeEach(async () => { server = await startServer(); });
 afterEach(async () => { for (const c of clients.splice(0)) c.disconnect(); await server.close(); });
 
 function client(): Promise<Client> {

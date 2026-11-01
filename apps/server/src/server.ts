@@ -14,7 +14,19 @@ export interface RunningServer {
   close(): Promise<void>;
 }
 
-export async function startServer(port = 0, corsOrigin: string[] = [], webDir: string | null = null, catalog: Catalog | null = null): Promise<RunningServer> {
+export interface ServerOptions {
+  port?: number;
+  corsOrigin?: string[];
+  /** Built web app to serve, if any. */
+  webDir?: string | null;
+  catalog?: Catalog | null;
+  /** Rooms (restored from the database, or in memory only). */
+  rooms?: Rooms;
+}
+
+const SWEEP_MS = 60_000;
+
+export async function startServer({ port = 0, corsOrigin = [], webDir = null, catalog = null, rooms = new Rooms() }: ServerOptions = {}): Promise<RunningServer> {
   const serve = webDir ? staticHandler(webDir) : null;
   const api = apiHandler(catalog);
   const http = createHttpServer((req, res) => {
@@ -22,7 +34,8 @@ export async function startServer(port = 0, corsOrigin: string[] = [], webDir: s
     if (serve) void serve(req, res); else res.writeHead(404).end();
   });
   const io = new Server<ClientToServer, ServerToClient>(http, { cors: { origin: corsOrigin } });
-  const rooms = new Rooms();
+  const sweeper = setInterval(() => { rooms.sweep(); }, SWEEP_MS);
+  sweeper.unref();
 
   io.on('connection', (socket: GameSocket) => {
     let room: Room | null = null;
@@ -101,6 +114,10 @@ export async function startServer(port = 0, corsOrigin: string[] = [], webDir: s
   const { port: actual } = http.address() as AddressInfo;
   return {
     url: `http://localhost:${String(actual)}`,
-    close: () => new Promise((resolve) => { void io.close(() => { resolve(); }); }),
+    close: async () => {
+      clearInterval(sweeper);
+      await new Promise<void>((resolve) => { void io.close(() => { resolve(); }); });
+      await rooms.flush();
+    },
   };
 }

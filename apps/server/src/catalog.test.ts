@@ -49,7 +49,7 @@ describe('catalog', () => {
 
 describe('catalog API', () => {
   let server: RunningServer;
-  beforeAll(async () => { server = await startServer(0, [], null, { cards: catalog, sets: [], byId: new Map(catalog.map((c) => [c.oracleId, c])) }); });
+  beforeAll(async () => { server = await startServer({ catalog: { cards: catalog, sets: [], byId: new Map(catalog.map((c) => [c.oracleId, c])) } }); });
   afterAll(async () => { await server.close(); });
 
   it('pages search results and trims printings in lists', async () => {

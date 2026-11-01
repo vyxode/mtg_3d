@@ -71,6 +71,9 @@ export function Game({ room, update, onError }: Props) {
         {!view.result && <button className="danger" onClick={() => { if (confirm('¿Conceder la partida?')) void ask('game:input', { concede: true }); }}>Conceder</button>}
       </section>
 
+      {!view.result && room.seats[opp]?.connected === false && (
+        <p className="banner">{nameOf(opp)} se ha desconectado. Si no vuelve en 15 minutos, la partida será tuya.</p>
+      )}
       {view.result && (
         <p className="banner">{view.result.winner === null ? 'Empate.' : view.result.winner === me ? '¡Has ganado!' : `Ha ganado ${nameOf(view.result.winner)}.`}</p>
       )}

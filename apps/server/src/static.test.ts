@@ -13,7 +13,7 @@ beforeAll(async () => {
   writeFileSync(join(web, 'index.html'), '<!doctype html>INDEX');
   writeFileSync(join(web, 'app.js'), 'console.log(1)');
   writeFileSync(join(dir, 'secret.txt'), 'SECRET'); // right next to the web directory
-  server = await startServer(0, [], web);
+  server = await startServer({ webDir: web });
 });
 afterAll(async () => { await server.close(); });
 

@@ -1,10 +1,16 @@
-import { randomBytes, randomInt } from 'node:crypto';
-import { createGame, eventsFor, step, viewFor, type GameEvent, type GameState, type PlayerId, type Response } from '@mtg3d/engine';
+import { createHash, randomBytes, randomInt, timingSafeEqual } from 'node:crypto';
+import { createGame, eventsFor, step, viewFor, type GameEvent, type GameState, type PlayerId, type PlayerInput, type Response } from '@mtg3d/engine';
 import { CARDS, validateCasualDeck } from '@mtg3d/cards';
 import type { GameUpdate, RoomState } from '@mtg3d/protocol';
+import type { RoomRecord, RoomStore, SeatRecord } from './store';
 
 const CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // no 0/O or 1/I
 const PLAYERS: PlayerId[] = ['p1', 'p2'];
+
+/** A player who stays disconnected this long during a game, while the opponent waits, concedes. */
+export const ABANDON_MS = 15 * 60_000;
+/** A room nobody has been connected to for this long is deleted. */
+export const IDLE_MS = 6 * 60 * 60_000;
 
 /** Where a seat's messages go: a live socket, or nowhere while disconnected. */
 export interface Outbox {
@@ -12,20 +18,55 @@ export interface Outbox {
   gameUpdate(u: GameUpdate): void;
 }
 
-interface Seat {
-  name: string;
-  token: string;
+interface Seat extends SeatRecord {
   out: Outbox | null;
-  deck: string[] | null;
-  fullControl: boolean;
+  /** When the seat lost its connection (null while connected). */
+  disconnectedAt: number | null;
 }
+
+const hashToken = (token: string): string => createHash('sha256').update(token).digest('hex');
 
 export class Room {
   readonly seats: Partial<Record<PlayerId, Seat>> = {};
   state: GameState | null = null;
   version = 0;
+  private seed: number | null = null;
+  private inputs: PlayerInput[] = [];
+  updatedAt: number;
 
-  constructor(readonly code: string) {}
+  constructor(readonly code: string, private readonly now: () => number, private readonly onChange: (r: Room) => void = () => undefined) {
+    this.updatedAt = now();
+  }
+
+  /** Rebuilds a stored room by replaying its inputs; every seat starts disconnected. */
+  static fromRecord(r: RoomRecord, now: () => number, onChange?: (room: Room) => void): Room {
+    const room = new Room(r.code, now, onChange);
+    for (const p of PLAYERS) {
+      const s = r.seats[p];
+      if (s) room.seats[p] = { ...s, out: null, disconnectedAt: now() };
+    }
+    room.updatedAt = r.updatedAt;
+    if (r.seed !== null) {
+      room.start(r.seed);
+      for (const input of r.inputs) {
+        const res = step(room.state as GameState, input, CARDS);
+        if (!res.ok) throw new Error(`Room ${r.code}: stored input rejected on replay (${res.error})`);
+        room.state = res.state;
+        room.inputs.push(input);
+      }
+      room.version = 1 + room.inputs.length;
+    }
+    return room;
+  }
+
+  toRecord(): RoomRecord {
+    const seats: RoomRecord['seats'] = {};
+    for (const p of PLAYERS) {
+      const s = this.seats[p];
+      if (s) seats[p] = { name: s.name, tokenHash: s.tokenHash, deck: s.deck, fullControl: s.fullControl };
+    }
+    return { code: this.code, seats, seed: this.seed, inputs: this.inputs, updatedAt: this.updatedAt };
+  }
 
   status(): RoomState['status'] {
     if (this.state?.result) return 'finished';
@@ -34,14 +75,16 @@ export class Room {
   }
 
   seatByToken(token: string): PlayerId | null {
-    return PLAYERS.find((p) => this.seats[p]?.token === token) ?? null;
+    const h = Buffer.from(hashToken(token));
+    return PLAYERS.find((p) => { const s = this.seats[p]; return !!s && timingSafeEqual(Buffer.from(s.tokenHash), h); }) ?? null;
   }
 
   addPlayer(name: string, out: Outbox): { seat: PlayerId; token: string } | null {
     const seat = PLAYERS.find((p) => !this.seats[p]);
     if (!seat) return null;
     const token = randomBytes(24).toString('base64url');
-    this.seats[seat] = { name, token, out, deck: null, fullControl: false };
+    this.seats[seat] = { name, tokenHash: hashToken(token), out, deck: null, fullControl: false, disconnectedAt: null };
+    this.changed();
     this.broadcastRoom();
     return { seat, token };
   }
@@ -50,6 +93,8 @@ export class Room {
     const s = this.seats[seat];
     if (!s) return;
     s.out = out;
+    s.disconnectedAt = out ? null : this.now();
+    this.updatedAt = this.now();
     this.broadcastRoom();
     if (out && this.state) out.gameUpdate(this.updateFor(seat, []));
   }
@@ -59,36 +104,50 @@ export class Room {
     const errors = validateCasualDeck(deck, CARDS);
     if (errors.length) return errors.join(' ');
     (this.seats[seat] as Seat).deck = deck;
-    const d1 = this.seats.p1?.deck;
-    const d2 = this.seats.p2?.deck;
-    if (d1 && d2) {
-      const created = createGame({ seed: randomInt(2 ** 31), decks: { p1: d1, p2: d2 } }, CARDS); // seed from a CSPRNG, never sent
-      if (!created.ok) return created.error;
-      this.state = created.state;
-      this.version = 1;
-      this.broadcastRoom();
-      this.broadcastGame(created.events);
-    } else {
-      this.broadcastRoom();
+    if (this.seats.p1?.deck && this.seats.p2?.deck) {
+      const error = this.start(randomInt(2 ** 31)); // seed from a CSPRNG, never sent
+      if (error) return error;
     }
+    this.changed();
+    this.broadcastRoom();
+    return null;
+  }
+
+  private start(seed: number): string | null {
+    const created = createGame({ seed, decks: { p1: this.seats.p1?.deck ?? [], p2: this.seats.p2?.deck ?? [] } }, CARDS);
+    if (!created.ok) return created.error;
+    this.seed = seed;
+    this.state = created.state;
+    this.version = 1;
+    this.broadcastGame(created.events);
     return null;
   }
 
   setFullControl(seat: PlayerId, on: boolean): void {
     (this.seats[seat] as Seat).fullControl = on;
+    this.changed();
     this.broadcastRoom();
   }
 
   input(seat: PlayerId, input: { decisionId: number; response: Response } | { concede: true }): string | null {
     if (!this.state) return 'La partida no ha empezado.';
-    const r = step(this.state, 'concede' in input ? { player: seat, concede: true } : { player: seat, ...input }, CARDS);
-    if (!r.ok) return r.error;
-    this.state = r.state;
-    const events = [...r.events, ...this.autoPass()];
-    this.version += 1;
+    const first = this.apply('concede' in input ? { player: seat, concede: true } : { player: seat, ...input });
+    if (typeof first === 'string') return first;
+    const events = [...first, ...this.autoPass()];
+    this.version = 1 + this.inputs.length; // the same number a replay reaches, so it never goes back after a restart
+    this.changed();
     if (this.state.result) this.broadcastRoom();
     this.broadcastGame(events);
     return null;
+  }
+
+  /** Steps the engine and records the input; the record is what a restart replays. */
+  private apply(input: PlayerInput): GameEvent[] | string {
+    const r = step(this.state as GameState, input, CARDS);
+    if (!r.ok) return r.error;
+    this.state = r.state;
+    this.inputs.push(input);
+    return r.events;
   }
 
   /**
@@ -101,10 +160,9 @@ export class Room {
       const s = this.state as GameState;
       const p = s.pending;
       if (p?.kind !== 'priority' || !this.shouldAutoPass(s, p.player, p.legal)) break;
-      const r = step(s, { player: p.player, decisionId: p.id, response: { kind: 'pass' } }, CARDS);
-      if (!r.ok) break;
-      this.state = r.state;
-      events.push(...r.events);
+      const r = this.apply({ player: p.player, decisionId: p.id, response: { kind: 'pass' } });
+      if (typeof r === 'string') break;
+      events.push(...r);
     }
     return events;
   }
@@ -120,12 +178,31 @@ export class Room {
     return !stops.includes(s.turn.step);
   }
 
+  /** The seat that has been away too long while the other one waits, if any. */
+  abandonedSeat(now: number): PlayerId | null {
+    if (this.status() !== 'playing') return null;
+    const away = PLAYERS.filter((p) => this.seats[p]?.out === null);
+    if (away.length !== 1) return null; // both away: nobody is waiting
+    const p = away[0] as PlayerId;
+    const since = this.seats[p]?.disconnectedAt ?? now;
+    return now - since >= ABANDON_MS ? p : null;
+  }
+
+  idle(now: number): boolean {
+    return PLAYERS.every((p) => !this.seats[p]?.out) && now - this.updatedAt >= IDLE_MS;
+  }
+
   roomStateFor(seat: PlayerId): RoomState {
     const info = (p: PlayerId) => {
       const s = this.seats[p];
       return s ? { name: s.name, connected: s.out !== null, ready: s.deck !== null } : null;
     };
     return { code: this.code, you: seat, status: this.status(), seats: { p1: info('p1'), p2: info('p2') }, fullControl: this.seats[seat]?.fullControl ?? false };
+  }
+
+  private changed(): void {
+    this.updatedAt = this.now();
+    this.onChange(this);
   }
 
   private updateFor(seat: PlayerId, events: GameEvent[]): GameUpdate {
@@ -142,20 +219,68 @@ export class Room {
   }
 }
 
-// shortcut: rooms live in memory and are never deleted; persist the input log (Postgres) and expire idle rooms in phase G.
+/** All rooms; with a store, every change is saved and rooms survive a restart. */
 export class Rooms {
   private readonly rooms = new Map<string, Room>();
+  /** Saves run one after another so an older snapshot never overwrites a newer one. */
+  private saving: Promise<void> = Promise.resolve();
+
+  constructor(private readonly store: RoomStore | null = null, private readonly now: () => number = Date.now) {}
+
+  static async load(store: RoomStore, now: () => number = Date.now): Promise<Rooms> {
+    const rooms = new Rooms(store, now);
+    for (const r of await store.loadAll()) {
+      try { rooms.rooms.set(r.code, Room.fromRecord(r, now, (room) => { rooms.persist(room); })); }
+      catch (e) { console.error(e); } // a room that cannot be replayed (e.g. a card definition changed) is skipped, not fatal
+    }
+    return rooms;
+  }
 
   create(): Room {
     let code: string;
     do code = Array.from({ length: 6 }, () => CODE_ALPHABET[randomInt(CODE_ALPHABET.length)]).join('');
     while (this.rooms.has(code));
-    const room = new Room(code);
+    const room = new Room(code, this.now, (r) => { this.persist(r); });
     this.rooms.set(code, room);
     return room;
   }
 
   get(code: string): Room | undefined {
     return this.rooms.get(code.toUpperCase());
+  }
+
+  get size(): number {
+    return this.rooms.size;
+  }
+
+  /** Concedes for players who abandoned a game and deletes idle rooms. Called every minute. */
+  sweep(): void {
+    const now = this.now();
+    for (const room of [...this.rooms.values()]) {
+      const gone = room.abandonedSeat(now);
+      if (gone) room.input(gone, { concede: true });
+      if (room.idle(now)) {
+        this.rooms.delete(room.code);
+        const store = this.store;
+        if (store) this.queue(() => store.delete(room.code));
+      }
+    }
+  }
+
+  /** Resolves once every queued save has finished (used by tests and on shutdown). */
+  flush(): Promise<void> {
+    return this.saving;
+  }
+
+  private persist(room: Room): void {
+    const store = this.store;
+    if (!store) return;
+    const record = structuredClone(room.toRecord()); // snapshot now; the save runs later
+    this.queue(() => store.save(record));
+  }
+
+  // shortcut: a crash between an input and its save loses that input; acceptable for casual games.
+  private queue(task: () => Promise<void>): void {
+    this.saving = this.saving.then(task).catch((e: unknown) => { console.error('Could not save a room:', e); });
   }
 }

@@ -4,8 +4,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "tsx watch src/main.ts",
-    "start": "tsx src/main.ts",
+    "dev": "tsx watch --env-file-if-exists=../../.env src/main.ts",
+    "start": "tsx --env-file-if-exists=../../.env src/main.ts",
     "typecheck": "tsc -p tsconfig.json",
     "test": "vitest run",
     "cards:sync": "tsx src/sync-cards.ts"
@@ -14,11 +14,14 @@
     "@mtg3d/cards": "workspace:*",
     "@mtg3d/engine": "workspace:*",
     "@mtg3d/protocol": "workspace:*",
+    "pg": "8.23.1",
     "socket.io": "^4.8.4",
     "tsx": "^4.23.15",
     "zod": "^4.6.7"
   },
   "devDependencies": {
+    "@electric-sql/pglite": "0.5.10",
+    "@types/pg": "8.23.1",
     "socket.io-client": "^4.8.4"
   }
 }

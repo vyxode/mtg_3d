@@ -18,7 +18,8 @@ Proyecto de fans, no oficial y sin ánimo de lucro. Magic: The Gathering y sus i
 | C — Constructor de mazos | Hecho: búsqueda con filtros, explorador de expansiones, impresiones, añadir con clic o arrastrando, banquillo, curva y colores, validación por formato, importar/exportar lista, duplicar/borrar. Indica qué cartas no puede jugar aún el motor. Los mazos se guardan en este navegador (pasan al servidor en la fase G) |
 | F — Mesa 3D | Hecho: React Three Fiber, animación de cambios de zona, combate visible, cartas usables resaltadas, vista previa al pasar el ratón, cámaras jugador/cenital, respaldo 2D ([ADR 0003](docs/adr/0003-mesa-3d.md)) |
 | D3a — Cartas del meta | Hecho: aterrizaje, búsqueda de tierras, costes de sacrificar/exiliar, afinidad, tierras extra; 7 cartas de Mono-Green Landfall y el mazo «Landfall verde» ([lo que falta](docs/rules-coverage.md)) |
-| D3b, G, H | Pendiente |
+| G — Persistencia | Hecho: con `DATABASE_URL` las partidas sobreviven a reinicios (se repiten sus entradas, [ADR 0004](docs/adr/0004-persistencia-por-repeticion.md)); abandono a los 15 min; salas inactivas se borran a las 6 h. Los mazos siguen en el navegador |
+| D3b, H | Pendiente |
 
 ## Jugar ya
 
@@ -45,7 +46,7 @@ El servidor pasa la prioridad por ti cuando no puedes hacer nada útil; marca **
 pnpm dev        # servidor (3001) + web con recarga en caliente (5173)
 pnpm check      # tipos + lint + tests unitarios, de reglas e integración
 pnpm e2e        # dos navegadores Chrome reales juegan el primer turno
-cp .env.example .env && pnpm db:up   # PostgreSQL 16 (se usará en la fase B2)
+cp .env.example .env && pnpm db:up   # PostgreSQL 16: con DATABASE_URL las partidas sobreviven a reinicios
 ```
 
 ## Estructura
