@@ -3,12 +3,15 @@ import { PRESET_DECKS } from '@mtg3d/cards';
 import type { GameUpdate, JoinAck, RoomState } from '@mtg3d/protocol';
 import { ask, loadSession, saveSession, socket } from './net';
 import { Game } from './Game';
+import { DeckBuilder } from './DeckBuilder';
+import { expandList, loadDecks } from './decks';
 
 export function App() {
   const [connected, setConnected] = useState(socket.connected);
   const [room, setRoom] = useState<RoomState | null>(null);
   const [update, setUpdate] = useState<GameUpdate | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [screen, setScreen] = useState<'play' | 'decks'>('play');
 
   useEffect(() => {
     const onConnect = () => {
@@ -38,14 +41,19 @@ export function App() {
     <div className="app">
       <header className="topbar">
         <strong>mtg_3d</strong>
+        <nav>
+          <button className={screen === 'play' ? 'primary' : ''} onClick={() => { setScreen('play'); }}>Jugar</button>
+          <button className={screen === 'decks' ? 'primary' : ''} onClick={() => { setScreen('decks'); }}>Mis mazos</button>
+        </nav>
         <span className={connected ? 'ok' : 'warn'}>{connected ? 'Conectado' : 'Sin conexión…'}</span>
         {room && <span>Sala <code>{room.code}</code></span>}
         {room && <button className="link" onClick={leave}>Salir</button>}
       </header>
       {error && <p className="error" role="alert">{error}</p>}
-      {!room && <Lobby onError={setError} />}
-      {room && !update && <WaitingRoom room={room} onError={setError} />}
-      {room && update && <Game room={room} update={update} onError={setError} />}
+      {screen === 'decks' && <DeckBuilder />}
+      {screen === 'play' && !room && <Lobby onError={setError} />}
+      {screen === 'play' && room && !update && <WaitingRoom room={room} onError={setError} />}
+      {screen === 'play' && room && update && <Game room={room} update={update} onError={setError} />}
     </div>
   );
 }
@@ -72,12 +80,15 @@ function Lobby({ onError }: { onError: (e: string | null) => void }) {
 }
 
 function WaitingRoom({ room, onError }: { room: RoomState; onError: (e: string | null) => void }) {
-  const names = Object.keys(PRESET_DECKS);
+  const saved = loadDecks();
+  const options: Record<string, string[]> = { ...PRESET_DECKS };
+  for (const d of saved) options[`Mío: ${d.name}`] = expandList(d.main);
+  const names = Object.keys(options);
   const [deck, setDeck] = useState(names[0] ?? '');
   const me = room.seats[room.you];
   const opp = room.seats[room.you === 'p1' ? 'p2' : 'p1'];
   const choose = async () => {
-    const r = await ask<{ ok: boolean; error?: string }>('room:deck', { deck: PRESET_DECKS[deck] });
+    const r = await ask<{ ok: boolean; error?: string }>('room:deck', { deck: options[deck] });
     onError(r.ok ? null : (r.error ?? 'Error'));
   };
   return (

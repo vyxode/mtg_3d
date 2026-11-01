@@ -15,7 +15,8 @@ Proyecto de fans, no oficial y sin ánimo de lucro. Magic: The Gathering y sus i
 | E1 — Esqueleto jugable | Hecho: salas con código, servidor autoritativo, proyección por jugador, reconexión, auto-pase, interfaz 2D de depuración |
 | D2a/D2b — Reglas | Hecho: 12 palabras clave, disparadas, activadas, estáticas, fichas, contadores, planeswalkers, tierras dobles y de choque, leyendas; 55 cartas, 5 mazos |
 | B — Biblioteca (Scryfall) | Hecho: `pnpm cards:sync` importa todo Scryfall; búsqueda por filtros en `/api/cards` ([ADR 0002](docs/adr/0002-catalogo-en-memoria.md)) |
-| C, F, D3, G, H | Pendiente |
+| C — Constructor de mazos | Hecho: búsqueda con filtros, explorador de expansiones, impresiones, añadir con clic o arrastrando, banquillo, curva y colores, validación por formato, importar/exportar lista, duplicar/borrar. Indica qué cartas no puede jugar aún el motor. Los mazos se guardan en este navegador (pasan al servidor en la fase G) |
+| F, D3, G, H | Pendiente |
 
 ## Jugar ya (interfaz 2D de depuración)
 
@@ -30,7 +31,7 @@ pnpm cards:sync # opcional: descarga el catálogo completo de Scryfall (necesita
 
 1. Abre `http://localhost:3001`, escribe tu nombre y pulsa **Crear sala**.
 2. Pasa el código de 6 letras a tu amigo; él entra en la misma dirección, escribe el código y pulsa **Unirse**.
-3. Cada uno elige uno de los mazos predefinidos de 60 cartas.
+3. Cada uno elige un mazo predefinido o uno suyo de «Mis mazos» (solo con cartas que el motor ya implementa).
 
 Para jugar desde otro ordenador, tu amigo necesita llegar a tu puerto 3001: misma red local (usa tu IP en vez de `localhost`) o un túnel como Cloudflare Tunnel. El despliegue definitivo es la fase H.
 

@@ -65,3 +65,34 @@ code.big { font-size: 24px; letter-spacing: .2em; color: var(--accent); }
 details { color: var(--muted); }
 
 @media (max-width: 800px) { .middle { grid-template-columns: 1fr; } }
+
+nav { display: flex; gap: 4px; }
+.builder { display: grid; grid-template-columns: 220px 1.6fr 1fr; gap: 8px; padding: 8px 16px; align-items: start; }
+.builder .panel { margin: 0; padding: 12px; }
+.deck-list { display: flex; flex-direction: column; }
+.row-button, .selected-row { text-align: left; }
+.selected-row { border-color: var(--accent); }
+.tabs { display: flex; gap: 4px; margin-bottom: 8px; }
+.filters { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.filters input { width: 150px; }
+.row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.results { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 8px; max-height: 70vh; overflow-y: auto; }
+.result img, .results > img { width: 100%; aspect-ratio: 63 / 88; object-fit: contain; border-radius: 6px; cursor: pointer; background: #0c0d0f; }
+.result-actions { display: flex; align-items: center; justify-content: flex-end; gap: 2px; }
+.badge { font-size: 11px; color: var(--danger); margin-right: auto; }
+.deck-name { font-size: 18px; width: 100%; margin-bottom: 6px; }
+.deck-row { display: grid; grid-template-columns: 1fr auto auto auto; gap: 4px; align-items: center; font-size: 14px; }
+.deck-row button { padding: 0 8px; }
+.curve { display: flex; gap: 6px; align-items: flex-end; height: 100px; margin: 8px 0; }
+.curve .bar { display: flex; flex-direction: column; align-items: center; font-size: 12px; justify-content: flex-end; height: 100%; }
+.curve .bar div { width: 18px; background: var(--accent); border-radius: 3px 3px 0 0; }
+.sideboard { border: 1px dashed var(--line); border-radius: 8px; padding: 8px; margin-top: 12px; min-height: 60px; }
+.set-list { display: flex; flex-direction: column; max-height: 70vh; overflow-y: auto; }
+.modal { position: fixed; inset: 0; background: rgba(0,0,0,.7); display: flex; align-items: center; justify-content: center; z-index: 10; }
+.modal .panel { max-width: 900px; max-height: 90vh; overflow-y: auto; }
+.big-card { width: 300px; aspect-ratio: 63 / 88; object-fit: contain; }
+.oracle { white-space: pre-wrap; }
+@media (max-width: 1000px) { .builder { grid-template-columns: 1fr; } }
+.filters input[type='checkbox'] { width: auto; }
+.result-name { display: block; padding: 0; margin: 2px 0; font-size: 13px; text-align: left; color: var(--text); text-decoration: none; }
+.deck h3 { margin-top: 12px; }
