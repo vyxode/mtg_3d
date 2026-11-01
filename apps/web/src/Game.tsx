@@ -1,10 +1,15 @@
-import { useEffect, useRef, useState } from 'react';
+import { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import { CARDS } from '@mtg3d/cards';
 import type { GameEvent, LegalAction, ManaType, ObjectId, PendingDecision, PlayerId, PlayerView, Response, Step, Target, VisibleObject } from '@mtg3d/engine';
 import type { GameUpdate, RoomState } from '@mtg3d/protocol';
 import { autopay } from './autopay';
 import { ask, cardImage } from './net';
-import { Table3D, webglAvailable } from './table/Table3D';
+
+// three.js is most of the bundle: load it only when the 3D table is shown.
+const Table3D = lazy(() => import('./table/Table3D').then((m) => ({ default: m.Table3D })));
+const webglAvailable = (): boolean => {
+  try { return !!document.createElement('canvas').getContext('webgl2'); } catch { return false; }
+};
 
 const STEP_NAMES: Record<Step, string> = {
   untap: 'Enderezar', upkeep: 'Mantenimiento', draw: 'Robar', main1: 'Fase principal 1',
@@ -72,7 +77,7 @@ export function Game({ room, update, onError }: Props) {
 
       <PlayerBar view={view} p={opp} name={nameOf(opp)} />
       {mode === '2d' && <Zone title={`Campo de ${nameOf(opp)}`} cards={battlefield(opp)} />}
-      {mode === '3d' && <Table3D view={view} events={update.events} usable={new Set(mine?.kind === 'priority' ? usableActions(view, mine.legal).filter((a) => a.kind !== 'activateMana').map(subject) : [])} />}
+      {mode === '3d' && <Suspense fallback={<div className="table3d"><p className="muted">Cargando la mesa 3D…</p></div>}><Table3D view={view} events={update.events} usable={new Set(mine?.kind === 'priority' ? usableActions(view, mine.legal).filter((a) => a.kind !== 'activateMana').map(subject) : [])} /></Suspense>}
 
       <section className="middle">
         <div className="stack">

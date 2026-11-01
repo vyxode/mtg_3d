@@ -14,11 +14,6 @@ const CAMERAS = {
 } as const;
 type CameraName = keyof typeof CAMERAS;
 
-/** Whether this browser can draw the 3D table. */
-export function webglAvailable(): boolean {
-  try { return !!document.createElement('canvas').getContext('webgl2'); } catch { return false; }
-}
-
 interface Props { view: PlayerView; events: GameEvent[]; usable: ReadonlySet<ObjectId> }
 
 export function Table3D({ view, events, usable }: Props) {
