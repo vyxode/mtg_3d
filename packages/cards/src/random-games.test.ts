@@ -49,12 +49,16 @@ function countOwned(s: GameState, p: PlayerId): number {
   return Object.values(s.objects).filter((o) => o.owner === p).length;
 }
 
+function decksFor(seed: number): { p1: string[]; p2: string[]; rng: RngState } {
+  const [p1, r1] = randomDeck(seedRng(seed));
+  const [p2, rng] = randomDeck(r1);
+  return { p1, p2, rng };
+}
+
 function playRandomGame(seed: number, maxInputs = 3000): { state: GameState; inputs: PlayerInput[] } {
-  let rng = seedRng(seed);
-  let d1: string[]; let d2: string[];
-  [d1, rng] = randomDeck(rng);
-  [d2, rng] = randomDeck(rng);
-  const created = createGame({ seed, decks: { p1: d1, p2: d2 } }, CARDS);
+  const decks = decksFor(seed);
+  let rng = decks.rng;
+  const created = createGame({ seed, decks: { p1: decks.p1, p2: decks.p2 } }, CARDS);
   if (!created.ok) throw new Error(created.error);
   let state = created.state;
   const inputs: PlayerInput[] = [];
@@ -91,11 +95,8 @@ describe('random games', () => {
   it('replaying the same inputs reproduces the exact same game', () => {
     const { state, inputs } = playRandomGame(4242);
     // Rebuild from scratch with the same decks, then re-apply the recorded inputs.
-    let rng = seedRng(4242);
-    let d1: string[]; let d2: string[];
-    [d1, rng] = randomDeck(rng);
-    [d2] = randomDeck(rng);
-    const again = createGame({ seed: 4242, decks: { p1: d1, p2: d2 } }, CARDS);
+    const { p1, p2 } = decksFor(4242);
+    const again = createGame({ seed: 4242, decks: { p1, p2 } }, CARDS);
     if (!again.ok) throw new Error(again.error);
     let replay = again.state;
     for (const input of inputs) {
