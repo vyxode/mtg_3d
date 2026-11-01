@@ -1,0 +1,77 @@
+/** Messages between browser and server. Zod validates everything that comes from a client; the engine validates the rules. */
+import { z } from 'zod';
+import type { GameEvent, PlayerId, PlayerView, Response } from '@mtg3d/engine';
+
+const id = z.string().min(1).max(32);
+const player = z.enum(['p1', 'p2']);
+const target = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('player'), player }),
+  z.object({ kind: z.literal('object'), id }),
+]);
+
+export const responseSchema = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('chooseStartingPlayer'), first: player }),
+  z.object({ kind: z.literal('keep') }),
+  z.object({ kind: z.literal('mulligan') }),
+  z.object({ kind: z.literal('bottomCards'), cards: z.array(id).max(60) }),
+  z.object({ kind: z.literal('pass') }),
+  z.object({ kind: z.literal('playLand'), card: id }),
+  z.object({ kind: z.literal('cast'), card: id, targets: z.array(target).max(10), payment: z.array(id).max(60) }),
+  z.object({ kind: z.literal('activateMana'), source: id }),
+  z.object({ kind: z.literal('declareAttackers'), attackers: z.array(id).max(200) }),
+  z.object({ kind: z.literal('declareBlockers'), blocks: z.array(z.object({ blocker: id, attacker: id })).max(200) }),
+  z.object({ kind: z.literal('assignCombatDamage'), assignment: z.record(id, z.number().int().min(0).max(1000)) }),
+  z.object({ kind: z.literal('discard'), cards: z.array(id).max(60) }),
+]) satisfies z.ZodType<Response>;
+
+const name = z.string().trim().min(1).max(24);
+export const ROOM_CODE_LENGTH = 6;
+const code = z.string().trim().toUpperCase().length(ROOM_CODE_LENGTH);
+
+export const clientMessages = {
+  'room:create': z.object({ name }),
+  'room:join': z.object({ code, name }),
+  'room:rejoin': z.object({ code, token: z.string().min(16).max(64) }),
+  'room:deck': z.object({ deck: z.array(z.string().min(1).max(141)).min(1).max(250) }),
+  'room:settings': z.object({ fullControl: z.boolean() }),
+  'game:input': z.union([
+    z.object({ decisionId: z.number().int().nonnegative(), response: responseSchema }),
+    z.object({ concede: z.literal(true) }),
+  ]),
+} as const;
+
+export type ClientMessage = keyof typeof clientMessages;
+export type ClientPayload<K extends ClientMessage> = z.infer<(typeof clientMessages)[K]>;
+
+export type Ack<T = object> = ({ ok: true } & T) | { ok: false; error: string };
+export type JoinAck = Ack<{ code: string; seat: PlayerId; token: string }>;
+
+export interface SeatInfo { name: string; connected: boolean; ready: boolean }
+export interface RoomState {
+  code: string;
+  you: PlayerId;
+  status: 'waiting' | 'choosingDecks' | 'playing' | 'finished';
+  seats: Record<PlayerId, SeatInfo | null>;
+  fullControl: boolean;
+}
+
+export interface GameUpdate {
+  /** Increases by one with every applied input; a gap means the client must ask for a fresh view. */
+  version: number;
+  view: PlayerView;
+  events: GameEvent[];
+}
+
+export interface ServerToClient {
+  'room:state': (s: RoomState) => void;
+  'game:update': (u: GameUpdate) => void;
+}
+
+export interface ClientToServer {
+  'room:create': (p: ClientPayload<'room:create'>, ack: (a: JoinAck) => void) => void;
+  'room:join': (p: ClientPayload<'room:join'>, ack: (a: JoinAck) => void) => void;
+  'room:rejoin': (p: ClientPayload<'room:rejoin'>, ack: (a: JoinAck) => void) => void;
+  'room:deck': (p: ClientPayload<'room:deck'>, ack: (a: Ack) => void) => void;
+  'room:settings': (p: ClientPayload<'room:settings'>, ack: (a: Ack) => void) => void;
+  'game:input': (p: ClientPayload<'game:input'>, ack: (a: Ack) => void) => void;
+}

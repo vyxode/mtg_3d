@@ -5,6 +5,8 @@ const basic = (name: string, subtype: string, produce: ManaType): CardDef => ({
   manaAbilities: [{ cost: 'tap', produce }], // 305.6: intrinsic mana ability of basic land types
 });
 
+// 'tested' means the card has its own scenario test, or it is a template with no rules text of its own
+// (basic land, vanilla creature) whose template is tested.
 const vanilla = (name: string, cost: string, subtypes: string[], power: number, toughness: number): CardDef => ({
   name, status: 'tested', manaCost: parseManaCost(cost), types: ['Creature'], subtypes, power, toughness,
 });
@@ -23,6 +25,11 @@ export const DEFS: CardDef[] = [
   vanilla('Grizzly Bears', '{1}{G}', ['Bear'], 2, 2),
   vanilla('Hill Giant', '{3}{R}', ['Giant'], 3, 3),
   vanilla('Craw Wurm', '{4}{G}{G}', ['Wurm'], 6, 4),
+  vanilla('Merfolk of the Pearl Trident', '{U}', ['Merfolk'], 1, 1),
+  vanilla('Pearled Unicorn', '{2}{W}', ['Unicorn'], 2, 2),
+  vanilla('Gray Ogre', '{2}{R}', ['Ogre'], 2, 2),
+  vanilla('Scathe Zombies', '{2}{B}', ['Zombie'], 2, 2),
+  vanilla('Ironroot Treefolk', '{4}{G}', ['Treefolk'], 3, 5),
   {
     ...vanilla('Llanowar Elves', '{G}', ['Elf', 'Druid'], 1, 1),
     manaAbilities: [{ cost: 'tap', produce: 'G' }],

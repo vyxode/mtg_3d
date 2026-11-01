@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { createGame, nextInt, seedRng, step, type GameState, type ObjectId, type PlayerId, type PlayerInput, type Response, type RngState } from '@mtg3d/engine';
+import { createGame, eventsFor, nextInt, seedRng, step, viewFor, type GameEvent, type GameState, type ObjectId, type PlayerId, type PlayerInput, type Response, type RngState } from '@mtg3d/engine';
 import { CARDS, DEFS } from './index';
 
 /** A tiny random "player" that only uses the decision's own options; rejected moves fall back to passing. */
@@ -49,6 +49,17 @@ function countOwned(s: GameState, p: PlayerId): number {
   return Object.values(s.objects).filter((o) => o.owner === p).length;
 }
 
+/** No id of a card hidden from `viewer` (opponent's hand, any library) may appear in what the viewer receives. */
+function assertNoLeak(s: GameState, events: GameEvent[], viewer: PlayerId, seed: number): void {
+  const opp: PlayerId = viewer === 'p1' ? 'p2' : 'p1';
+  const hidden = [...s.zones.hand[opp], ...s.zones.library.p1, ...s.zones.library.p2];
+  const sent = JSON.stringify([viewFor(s, CARDS, viewer), eventsFor(events, viewer)]);
+  for (const id of hidden) {
+    if (sent.includes(`"${id}"`)) throw new Error(`Seed ${String(seed)}: ${viewer} can see hidden object ${id}`);
+  }
+  if (sent.includes('"rng"')) throw new Error('RNG state leaked');
+}
+
 function decksFor(seed: number): { p1: string[]; p2: string[]; rng: RngState } {
   const [p1, r1] = randomDeck(seedRng(seed));
   const [p2, rng] = randomDeck(r1);
@@ -76,6 +87,7 @@ function playRandomGame(seed: number, maxInputs = 3000): { state: GameState; inp
     if (!r.ok) throw new Error(`Seed ${String(seed)}: rejected ${response.kind}: ${r.error}`);
     // Invariants after every input
     if (countOwned(r.state, 'p1') !== 40 || countOwned(r.state, 'p2') !== 40) throw new Error(`Seed ${String(seed)}: a card appeared or vanished`);
+    for (const viewer of ['p1', 'p2'] as const) assertNoLeak(r.state, r.events, viewer, seed);
     inputs.push(input);
     state = r.state;
   }
