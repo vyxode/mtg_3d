@@ -10,8 +10,8 @@ Proyecto de fans, no oficial y sin ánimo de lucro. Magic: The Gathering y sus i
 
 | Fase | Estado |
 | --- | --- |
-| A — Base del proyecto | En curso |
-| D1 — Núcleo del motor | Generador aleatorio determinista hecho |
+| A — Base del proyecto | Hecho |
+| D1 — Núcleo del motor | Hecho: turnos, prioridad, pila, combate básico, SBA, mulligan; 16 cartas ([cobertura](docs/rules-coverage.md)) |
 | Resto | Pendiente |
 
 ## Requisitos
@@ -34,6 +34,7 @@ pnpm check             # tipos + lint + tests
 apps/        aplicaciones (web, server) — se crean en sus fases
 packages/
   engine/    motor de reglas puro: sin React, Three.js, red, base de datos ni APIs de Node
+  cards/     definiciones de cartas (DSL) y tests de reglas con cartas reales
 infra/       docker-compose
 docs/        decisiones (ADR) e incidencias
 ```
