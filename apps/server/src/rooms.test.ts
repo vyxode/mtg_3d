@@ -2,8 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { PGlite } from '@electric-sql/pglite';
 import { PRESET_DECKS } from '@mtg3d/cards';
 import type { GameState, PlayerId } from '@mtg3d/engine';
-import { ABANDON_MS, IDLE_MS, Rooms, type Outbox, type Room } from './rooms';
-import { PgStore } from './store';
+import { ABANDON_MS, IDLE_MS, PgStore, Rooms, type Outbox, type Room } from '@mtg3d/rooms';
+import { sha256 } from './server';
 
 const silent: Outbox = { roomState: () => undefined, gameUpdate: () => undefined };
 const deck = Object.values(PRESET_DECKS)[0] as string[];
@@ -37,11 +37,11 @@ function startedRoom(rooms: Rooms): { room: Room; tokens: Record<PlayerId, strin
 describe('room persistence', () => {
   it('a restarted server rebuilds every room from the stored inputs, and seats can be rejoined', async () => {
     const [store, db] = await pgStore();
-    const rooms = new Rooms(store);
+    const rooms = new Rooms(sha256, store);
     const { room, tokens } = startedRoom(rooms);
     await rooms.flush();
 
-    const restored = (await Rooms.load(store)).get(room.code);
+    const restored = (await Rooms.load(sha256, store)).get(room.code);
     expect(restored?.state).toEqual(room.state);
     expect(restored?.version).toBe(room.version);
     expect(restored?.seatByToken(tokens.p2)).toBe('p2');
@@ -56,7 +56,7 @@ describe('room persistence', () => {
 describe('abandoned and idle rooms', () => {
   it('a player away for too long during a game concedes, but not while both are away', () => {
     let now = 1_000_000;
-    const rooms = new Rooms(null, () => now);
+    const rooms = new Rooms(sha256, null, () => now);
     const { room } = startedRoom(rooms);
     room.attach('p2', null);
     now += ABANDON_MS - 1;
@@ -77,7 +77,7 @@ describe('abandoned and idle rooms', () => {
   it('rooms nobody has used for hours are deleted, from the database too', async () => {
     const [store] = await pgStore();
     let now = 5_000_000;
-    const rooms = new Rooms(store, () => now);
+    const rooms = new Rooms(sha256, store, () => now);
     const room = rooms.create();
     room.addPlayer('Ana', silent);
     room.attach('p1', null);

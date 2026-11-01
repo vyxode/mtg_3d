@@ -1,4 +1,3 @@
-import { createHash, randomBytes, randomInt, timingSafeEqual } from 'node:crypto';
 import { createGame, eventsFor, step, viewFor, type GameEvent, type GameState, type PlayerId, type PlayerInput, type Response } from '@mtg3d/engine';
 import { CARDS, validateCasualDeck } from '@mtg3d/cards';
 import type { GameUpdate, RoomState } from '@mtg3d/protocol';
@@ -24,7 +23,18 @@ interface Seat extends SeatRecord {
   disconnectedAt: number | null;
 }
 
-const hashToken = (token: string): string => createHash('sha256').update(token).digest('hex');
+/** Web Crypto (browsers and Node ≥ 19): this module runs in the server and, for serverless play, in the host's browser. */
+const randomInt = (n: number): number => (crypto.getRandomValues(new Uint32Array(1))[0] as number) % n; // n ≤ 2^31: bias ≤ 2^-1, only for the seed, irrelevant
+const randomToken = (): string => btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(24)))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+/** Constant-time string comparison (token hashes). */
+function sameText(a: string, b: string): boolean {
+  let diff = a.length ^ b.length;
+  for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  return diff === 0;
+}
+
+/** How seat tokens are stored: the server hashes them (SHA-256); a browser host keeps them only in its own storage. */
+export type HashToken = (token: string) => string;
 
 export class Room {
   readonly seats: Partial<Record<PlayerId, Seat>> = {};
@@ -34,13 +44,13 @@ export class Room {
   private inputs: PlayerInput[] = [];
   updatedAt: number;
 
-  constructor(readonly code: string, private readonly now: () => number, private readonly onChange: (r: Room) => void = () => undefined) {
+  constructor(readonly code: string, private readonly now: () => number, private readonly hashToken: HashToken, private readonly onChange: (r: Room) => void = () => undefined) {
     this.updatedAt = now();
   }
 
   /** Rebuilds a stored room by replaying its inputs; every seat starts disconnected. */
-  static fromRecord(r: RoomRecord, now: () => number, onChange?: (room: Room) => void): Room {
-    const room = new Room(r.code, now, onChange);
+  static fromRecord(r: RoomRecord, now: () => number, hashToken: HashToken, onChange?: (room: Room) => void): Room {
+    const room = new Room(r.code, now, hashToken, onChange);
     for (const p of PLAYERS) {
       const s = r.seats[p];
       if (s) room.seats[p] = { ...s, out: null, disconnectedAt: now() };
@@ -75,15 +85,15 @@ export class Room {
   }
 
   seatByToken(token: string): PlayerId | null {
-    const h = Buffer.from(hashToken(token));
-    return PLAYERS.find((p) => { const s = this.seats[p]; return !!s && timingSafeEqual(Buffer.from(s.tokenHash), h); }) ?? null;
+    const h = this.hashToken(token);
+    return PLAYERS.find((p) => { const s = this.seats[p]; return !!s && sameText(s.tokenHash, h); }) ?? null;
   }
 
   addPlayer(name: string, out: Outbox): { seat: PlayerId; token: string } | null {
     const seat = PLAYERS.find((p) => !this.seats[p]);
     if (!seat) return null;
-    const token = randomBytes(24).toString('base64url');
-    this.seats[seat] = { name, tokenHash: hashToken(token), out, deck: null, fullControl: false, disconnectedAt: null };
+    const token = randomToken();
+    this.seats[seat] = { name, tokenHash: this.hashToken(token), out, deck: null, fullControl: false, disconnectedAt: null };
     this.changed();
     this.broadcastRoom();
     return { seat, token };
@@ -225,12 +235,12 @@ export class Rooms {
   /** Saves run one after another so an older snapshot never overwrites a newer one. */
   private saving: Promise<void> = Promise.resolve();
 
-  constructor(private readonly store: RoomStore | null = null, private readonly now: () => number = Date.now) {}
+  constructor(private readonly hashToken: HashToken, private readonly store: RoomStore | null = null, private readonly now: () => number = Date.now) {}
 
-  static async load(store: RoomStore, now: () => number = Date.now): Promise<Rooms> {
-    const rooms = new Rooms(store, now);
+  static async load(hashToken: HashToken, store: RoomStore, now: () => number = Date.now): Promise<Rooms> {
+    const rooms = new Rooms(hashToken, store, now);
     for (const r of await store.loadAll()) {
-      try { rooms.rooms.set(r.code, Room.fromRecord(r, now, (room) => { rooms.persist(room); })); }
+      try { rooms.rooms.set(r.code, Room.fromRecord(r, now, hashToken, (room) => { rooms.persist(room); })); }
       catch (e) { console.error(e); } // a room that cannot be replayed (e.g. a card definition changed) is skipped, not fatal
     }
     return rooms;
@@ -240,7 +250,7 @@ export class Rooms {
     let code: string;
     do code = Array.from({ length: 6 }, () => CODE_ALPHABET[randomInt(CODE_ALPHABET.length)]).join('');
     while (this.rooms.has(code));
-    const room = new Room(code, this.now, (r) => { this.persist(r); });
+    const room = new Room(code, this.now, this.hashToken, (r) => { this.persist(r); });
     this.rooms.set(code, room);
     return room;
   }

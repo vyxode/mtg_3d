@@ -27,6 +27,10 @@ Proyecto de fans, no oficial y sin ánimo de lucro. Magic: The Gathering y sus i
 
 ## Jugar ya
 
+**Sin instalar nada:** https://vyxode.github.io/mtg_3d/ (GitHub Pages; uno crea la sala y le pasa el código al otro; [cómo funciona](docs/deploy.md#0-github-pages-sin-servidor)).
+
+### Con tu propio servidor
+
 Requisitos: Node.js 22 (`.nvmrc`) y pnpm 10 (`corepack enable`).
 
 ```sh

@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { PRESET_DECKS } from '@mtg3d/cards';
 import type { GameUpdate, JoinAck, RoomState } from '@mtg3d/protocol';
-import { ask, loadSession, saveSession, socket } from './net';
+import { P2P, ask, loadSession, saveSession, socket } from './net';
 import { Game } from './Game';
 import { DeckBuilder } from './DeckBuilder';
 import { expandList, loadDecks } from './decks';
@@ -70,6 +70,7 @@ function Lobby({ onError }: { onError: (e: string | null) => void }) {
   return (
     <main className="panel narrow">
       <h1>Partida entre amigos</h1>
+      {P2P && <p className="muted">Sin servidor: quien crea la sala hace de anfitrión en su navegador y su amigo se conecta directamente a él. El anfitrión debe dejar la pestaña abierta durante la partida.</p>}
       <label>Tu nombre <input value={name} onChange={(e) => { setName(e.target.value); }} maxLength={24} autoFocus /></label>
       <button disabled={!name.trim()} onClick={() => void join('room:create')}>Crear sala</button>
       <hr />

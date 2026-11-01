@@ -2,7 +2,19 @@
 
 El servidor sirve la web y el juego por un solo puerto (3001). PostgreSQL es opcional: sin él las partidas viven en memoria y se pierden al reiniciar.
 
-La elección de alojamiento sigue abierta (decisión D6). Estas son las tres formas que funcionan hoy.
+La elección de alojamiento sigue abierta (decisión D6). Estas son las formas que funcionan hoy.
+
+## 0. GitHub Pages, sin servidor
+
+Cada vez que se sube algo a `main`, el flujo `.github/workflows/pages.yml` publica la web en `https://<usuario>.github.io/<repositorio>/`. Hay que activarlo una vez: en el repositorio, **Settings → Pages → Build and deployment → Source: GitHub Actions**.
+
+En esta versión no hay servidor de juego: quien crea la sala ejecuta la partida en su propio navegador (el mismo código del servidor) y su amigo se conecta directamente a él por WebRTC. El servidor público de PeerJS solo presenta a los dos navegadores.
+
+Limitaciones:
+- El anfitrión debe dejar la pestaña abierta. Si recarga la página, la partida se recupera desde su navegador y su amigo se reconecta solo.
+- El navegador del anfitrión tiene el estado completo de la partida (también la mano del rival). La interfaz no lo enseña, pero alguien que abra las herramientas de desarrollo podría verlo: es para jugar entre amigos que confían el uno en el otro. Para partidas a prueba de trampas, usa el servidor (opciones 2 y 3).
+- Sin catálogo completo de Scryfall: el constructor de mazos busca entre las cartas implementadas.
+- Algunas redes muy restrictivas (NAT simétrica, redes corporativas) no permiten la conexión directa entre navegadores.
 
 ## 1. En tu ordenador, para jugar con un amigo
 

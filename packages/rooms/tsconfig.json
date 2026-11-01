@@ -1,0 +1,6 @@
+{
+  "extends": "../../tsconfig.base.json",
+  // Runs in Node (the server) and in browsers (the serverless host): only APIs both have (Web Crypto, btoa, console).
+  "compilerOptions": { "lib": ["ES2023", "DOM"] },
+  "include": ["src"]
+}

@@ -37,6 +37,23 @@ jobs:
           name: playwright-results
           path: test-results/
 
+  p2p:
+    runs-on: ubuntu-latest # the GitHub Pages build: two browsers play through WebRTC, no game server
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: npx playwright test -c playwright.p2p.config.ts
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-p2p-results
+          path: test-results/
+
   docker:
     runs-on: ubuntu-latest
     steps:

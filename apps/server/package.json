@@ -14,6 +14,7 @@
     "@mtg3d/cards": "workspace:*",
     "@mtg3d/engine": "workspace:*",
     "@mtg3d/protocol": "workspace:*",
+    "@mtg3d/rooms": "workspace:*",
     "pg": "8.23.1",
     "socket.io": "^4.8.4",
     "tsx": "^4.23.15",
