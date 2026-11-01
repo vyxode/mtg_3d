@@ -23,6 +23,8 @@ export interface VisibleObject {
   otherCounters: Partial<Record<CounterKind, number>>;
   /** Exiled with warp: its owner may cast it from exile after this turn. */
   warpExiledTurn?: number;
+  /** The permanent an Aura enchants. */
+  attachedTo?: ObjectId;
 }
 
 export interface PlayerView {
@@ -61,6 +63,7 @@ export function viewFor(s: GameState, reg: CardRegistry, viewer: PlayerId): Play
       id: o.id, card: o.card, owner: o.owner, controller: o.controller, zone: o.zone,
       tapped: o.tapped, damage: o.damage, summoningSick: o.summoningSick, power: c.power, toughness: c.toughness, loyalty: o.loyalty, counters: o.counters,
       types: c.types, otherCounters: { ...o.kindCounters }, ...(o.warpExiledTurn !== undefined && { warpExiledTurn: o.warpExiledTurn }),
+      ...(o.attachedTo !== undefined && { attachedTo: o.attachedTo }),
     };
   }
   const player = (p: PlayerId) => {

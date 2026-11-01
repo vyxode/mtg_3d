@@ -31,7 +31,11 @@ export type TargetSpec = 'anyTarget' | 'creature' | 'spell' | 'player'
   /** "target creature with power 2 or less". */
   | 'creaturePowerAtMost2'
   /** "target land you control". */
-  | 'landYouControl';
+  | 'landYouControl'
+  | 'creatureOpponentControls'
+  | 'nonbasicLandOpponentControls'
+  /** "target card from a graveyard" (any graveyard). */
+  | 'cardInGraveyard';
 
 /** Counter kinds other than +1/+1 (kept in `GameObject.counters`) and loyalty. */
 export type CounterKind = 'quest';
@@ -65,7 +69,12 @@ export type Effect =
    * 701.23: search your library for a basic land card, put it onto the battlefield, then shuffle. Finding nothing is
    * allowed (701.23b). `untapIfLands`: "then if you control N or more lands, untap that land".
    */
-  | { kind: 'searchBasicLand'; tapped: boolean; untapIfLands?: number }
+  /** `who: 'targetController'`: the player who controlled target `target` as the ability began resolving. */
+  | { kind: 'searchBasicLand'; tapped: boolean; untapIfLands?: number; who?: 'targetController'; target?: number }
+  /** 701.14: the creature this Aura enchants fights the target (each deals damage equal to its power to the other). */
+  | { kind: 'enchantedFights'; target: number }
+  /** Exile a target card; with `track`, remember it was exiled with the source ("cards exiled with …"). */
+  | { kind: 'exileTarget'; target: number; track?: true }
   /**
    * Earthbend N: target land you control becomes a 0/0 creature with haste that's still a land. Put N +1/+1 counters
    * on it. When it dies or is exiled, return it to the battlefield tapped.
@@ -97,6 +106,8 @@ export interface TriggerDef {
     | 'creatureYouControlTargetedByOpponent'
     /** Only put on the stack by a `reflexive` effect of the same card (603.12). */
     | 'reflexive';
+  /** "Up to one target" (115.? 601.2c): its targets may be left unchosen. */
+  upToOne?: true;
   /** Intervening "if" (603.4): checked when it triggers and again as it resolves. */
   condition?: { selfCounters: CounterKind; atLeast: number };
   targets: TargetSpec[];
@@ -121,7 +132,11 @@ export type StaticDef =
   /** "You may play an additional land on each of your turns" (305.2). */
   | { kind: 'extraLandDrop' }
   /** "You may play lands from your graveyard." */
-  | { kind: 'playLandsFromGraveyard' };
+  | { kind: 'playLandsFromGraveyard' }
+  /** An Aura's "enchanted creature gets +X/+Y" (and "can't be blocked by more than one creature"). */
+  | { kind: 'enchantedGets'; power: number; toughness: number; maxBlockers?: number }
+  /** "As long as there are N or more card types among cards exiled with this, it gets +X/+Y and has …". */
+  | { kind: 'ifExiledCardTypes'; atLeast: number; power: number; toughness: number; keywords: Keyword[] };
 
 /** 'tested' = has its own scenario test; only tested and implemented cards are playable in strict mode. */
 export type ImplStatus = 'tested' | 'implemented' | 'unsupported';
@@ -146,6 +161,8 @@ export interface CardDef {
   statics?: StaticDef[];
   /** Replacement effects on entering the battlefield (614.1c, 614.12). */
   etb?: { tapped: true } | { tappedUnlessPayLife: number } | { tappedUnlessYouControlBasicLand: true };
+  /** Auras (303.4): what it can enchant; casting it targets that. */
+  enchant?: TargetSpec;
   /** Warp (702.185): may be cast from your hand for this cost; then exiled at the next end step and castable from exile later. */
   warp?: ManaCost;
   /** "This spell can't be countered" (101.6). */
@@ -190,6 +207,10 @@ export interface GameObject {
   kindCounters?: Partial<Record<CounterKind, number>>;
   /** Warp (702.185a): exiled by its warp ability on this turn; its owner may cast it from exile on any later turn. */
   warpExiledTurn?: number;
+  /** The object an Aura is attached to (303.4). */
+  attachedTo?: ObjectId;
+  /** Exiled by this object's ability ("cards exiled with …", 607). */
+  exiledBy?: ObjectId;
   loyalty: number;
   /** Turn number of its last loyalty activation (606.3). */
   loyaltyTurn: number;
@@ -246,6 +267,8 @@ export interface Resolution {
   effects: Effect[];
   targets: Target[];
   legal: boolean[];
+  /** Controller of each object target as resolution began (last known information for "that land's controller"). */
+  targetControllers: (PlayerId | null)[];
   /** Index of the next effect to perform. */
   next: number;
 }
@@ -327,7 +350,7 @@ export type PendingDecision =
   /** 603.3b: order your simultaneous triggers; `order` in the response is the order they will resolve. */
   | (DecisionBase & { kind: 'orderTriggers'; triggers: { id: string; card: string }[] })
   /** 603.3d: choose targets as the trigger is put on the stack. */
-  | (DecisionBase & { kind: 'chooseTargets'; trigger: string; card: string; targetOptions: Target[][] })
+  | (DecisionBase & { kind: 'chooseTargets'; trigger: string; card: string; targetOptions: Target[][]; optional?: true })
   /** 704.5j: choose the one legendary permanent with this name to keep. */
   | (DecisionBase & { kind: 'legendRule'; name: string; candidates: ObjectId[] })
   /**

@@ -211,6 +211,30 @@ export const DEFS: CardDef[] = [
     triggers: [{ on: 'creatureYouControlTargetedByOpponent', targets: [], effects: [{ kind: 'draw', amount: 1 }] }],
   }),
 
+  // D3c: Auras, fight, "up to one" targets, graveyard exile, searches by the target's controller.
+  {
+    name: "Meltstrider's Resolve", status: 'tested', manaCost: parseManaCost('{G}'), types: ['Enchantment'], subtypes: ['Aura'],
+    enchant: 'creatureYouControl',
+    triggers: [{ on: 'selfEntersBattlefield', upToOne: true, targets: ['creatureOpponentControls'], effects: [{ kind: 'enchantedFights', target: 0 }] }],
+    statics: [{ kind: 'enchantedGets', power: 0, toughness: 2, maxBlockers: 1 }],
+  },
+  {
+    name: 'Demolition Field', status: 'tested', manaCost: null, types: ['Land'], manaAbilities: [{ cost: 'tap', produce: ['C'] }],
+    activated: [{
+      text: '{2}, {T}, sacrificar: destruye una tierra no básica de un oponente; ambos podéis buscar una tierra básica',
+      cost: { mana: parseManaCost('{2}'), tap: true, sacrifice: true }, targets: ['nonbasicLandOpponentControls'],
+      effects: [
+        { kind: 'destroy', target: 0 },
+        { kind: 'searchBasicLand', tapped: false, who: 'targetController', target: 0 },
+        { kind: 'searchBasicLand', tapped: false },
+      ],
+    }],
+  },
+  creature('Keen-Eyed Curator', '{G}{G}', ['Raccoon', 'Scout'], 3, 3, {
+    statics: [{ kind: 'ifExiledCardTypes', atLeast: 4, power: 4, toughness: 4, keywords: ['Trample'] }],
+    activated: [{ text: '{1}: exilia una carta de un cementerio', cost: { mana: parseManaCost('{1}') }, targets: ['cardInGraveyard'], effects: [{ kind: 'exileTarget', target: 0, track: true }] }],
+  }),
+
   // shortcut: token definitions are keyed by name; give them distinct keys when two cards make different "Treefolk" tokens.
   { name: 'Treefolk', status: 'tested', manaCost: null, types: ['Creature'], subtypes: ['Treefolk'], power: 3, toughness: 4, keywords: ['Reach'], token: true },
 ];

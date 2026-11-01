@@ -94,6 +94,20 @@ Cartas: Fabled Passage, Escape Tunnel, Sazh's Chocobo, Mossborn Hydra, Shared Ro
 
 Cartas: Mightform Harmonizer, Ba Sing Se, Earthbender Ascension, Surrak, Elusive Hunter. El mazo «Landfall verde» tiene ya 51 de las 60 cartas de la lista del meta.
 
+## Hecho (D3c) — `d3c.test.ts`
+
+| Regla | Qué |
+| --- | --- |
+| 303.4, 608.3b | Auras: el hechizo apunta a lo que encantará; si el objetivo ya no es legal, no se resuelve |
+| 704.5m | Un Aura sin permanente legal va al cementerio |
+| 701.14 | Luchar |
+| 601.2c | "Hasta un objetivo": se puede no elegir ninguno |
+| 509.1b | "No puede ser bloqueada por más de una criatura" |
+| 607 | "Cartas exiliadas con…" y estáticas condicionales por tipos de carta |
+| 608.2h | Último dato conocido del controlador de un objetivo ("el controlador de esa tierra") |
+
+Cartas: Meltstrider's Resolve, Demolition Field, Keen-Eyed Curator. «Landfall verde» lleva 55 de las 60 cartas del meta; faltan Esper Origins (flashback, doble cara, saga) y Lumbering Worldwagon (vehículo).
+
 ## Atajos conocidos (comentados en el código con `shortcut:`)
 
 - 601.2 se envía como una sola respuesta (objetivos + pago a la vez); se valida en el orden de la regla.
@@ -105,6 +119,6 @@ Cartas: Mightform Harmonizer, Ba Sing Se, Earthbender Ascension, Surrak, Elusive
 - La regla de leyendas se aplica tras las demás acciones basadas en estado, no a la vez, porque necesita una elección.
 - Solo existen contadores +1/+1 y de lealtad.
 
-## Pendiente (D3c en adelante)
+## Pendiente (D3d en adelante)
 
-Flashback, cartas de doble cara y sagas (Esper Origins) · auras, luchar y equipos (704.5m) · vehículos y tripular · escudriñar, vigilar · disparadas al atacar, retardadas y de estado · protección y regeneración · capas 1–7d con dependencias · reemplazo y prevención generales · copias · cartas de varias caras · costes adicionales y alternativos, X, modos · contadores -1/-1 y otros.
+Flashback, cartas de doble cara y sagas (Esper Origins) · equipos · vehículos y tripular · escudriñar, vigilar · disparadas al atacar, retardadas y de estado · protección y regeneración · capas 1–7d con dependencias · reemplazo y prevención generales · copias · cartas de varias caras · costes adicionales y alternativos, X, modos · contadores -1/-1 y otros.

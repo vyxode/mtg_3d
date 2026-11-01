@@ -50,8 +50,16 @@ export function characteristics(s: GameState, reg: CardRegistry, id: ObjectId): 
   const mine = s.effects.filter((e) => e.affected === id).sort((a, b) => a.timestamp - b.timestamp);
   for (const e of mine) if (e.layer === '4' && !types.includes(e.addType)) types.push(e.addType);
   for (const e of mine) if (e.layer === '6' && e.grant !== 'cantBeBlocked' && !keywords.includes(e.grant)) keywords.push(e.grant);
+  const conditional = obj.zone === 'battlefield' ? (def.statics ?? []).flatMap((st) => {
+    if (st.kind !== 'ifExiledCardTypes') return [];
+    const types = new Set(s.zones.exile.filter((x) => s.objects[x]?.exiledBy === id).flatMap((x) => defOf(reg, (s.objects[x] as GameObject).card).types));
+    return types.size >= st.atLeast ? [st] : [];
+  }) : [];
+  for (const st of conditional) for (const k of st.keywords) if (!keywords.includes(k)) keywords.push(k);
   for (const e of mine) if (e.layer === '7b') { power = e.power; toughness = e.toughness; }
   for (const e of mine) if (e.layer === '7c') { power += e.power; toughness += e.toughness; }
+  for (const st of conditional) { power += st.power; toughness += st.toughness; }
+  for (const aura of auraStatics(s, reg, id)) { power += aura.power; toughness += aura.toughness; }
   if (obj.zone === 'battlefield' && types.includes('Creature')) {
     power += obj.counters; toughness += obj.counters; // 613.4c
     for (const sid of s.zones.battlefield) { // static anthems (layer 7c), recomputed every time
@@ -67,6 +75,13 @@ export function characteristics(s: GameState, reg: CardRegistry, id: ObjectId): 
 }
 
 const isType = (c: { types: readonly string[] }, t: string): boolean => c.types.includes(t);
+
+/** "Enchanted creature gets …" statics of the Auras attached to an object. */
+function auraStatics(s: GameState, reg: CardRegistry, id: ObjectId): Extract<NonNullable<CardDef['statics']>[number], { kind: 'enchantedGets' }>[] {
+  return s.zones.battlefield
+    .filter((a) => s.objects[a]?.attachedTo === id)
+    .flatMap((a) => (reg.get((s.objects[a] as GameObject).card)?.statics ?? []).flatMap((st) => (st.kind === 'enchantedGets' ? [st] : [])));
+}
 const onBattlefield = (s: GameState, id: ObjectId): boolean => s.objects[id]?.zone === 'battlefield';
 const isCreatureOnBattlefield = (ctx: Ctx, id: ObjectId): boolean =>
   onBattlefield(ctx.s, id) && isType(characteristics(ctx.s, ctx.reg, id), 'Creature');
@@ -191,6 +206,13 @@ function runSBA(ctx: Ctx): boolean {
       if (c.toughness <= 0) toGraveyard.push(id); // 704.5f (not destruction: indestructible doesn't help)
       else if (!c.keywords.includes('Indestructible') && (o.damage >= c.toughness || o.deathtouchDamage)) toGraveyard.push(id); // 704.5g, 704.5h
     }
+    for (const id of s.zones.battlefield) { // 704.5m: an Aura attached to nothing, or to something it can't enchant
+      const o = s.objects[id] as GameObject;
+      const spec = ctx.reg.get(o.card)?.enchant;
+      if (!spec) continue;
+      const host = o.attachedTo === undefined ? undefined : s.objects[o.attachedTo];
+      if (!host || host.zone !== 'battlefield' || !targetOptions(ctx, spec, o.controller).some((t) => t.kind === 'object' && t.id === host.id)) toGraveyard.push(id);
+    }
     for (const o of Object.values(s.objects)) o.deathtouchDamage = false; // 704.5h looks only since the last check
     const vanished = Object.values(s.objects).filter((o) => o.zone !== 'battlefield' && ctx.reg.get(o.card)?.token); // 704.5d
     for (const o of vanished) {
@@ -210,7 +232,7 @@ function runSBA(ctx: Ctx): boolean {
       s.players[p].lost = true;
       ctx.events.push({ kind: 'playerLost', player: p, reason: s.players[p].life <= 0 ? 'life' : 'emptyLibrary' });
     }
-    for (const id of toGraveyard) moveObject(ctx, id, 'graveyard');
+    for (const id of new Set(toGraveyard)) moveObject(ctx, id, 'graveyard');
   }
   checkGameOver(ctx);
   return any;
@@ -304,8 +326,13 @@ function placeTriggers(ctx: Ctx): boolean {
       return false;
     }
     for (const t of mine) {
-      const def = t.delayed ? { targets: [] } : defOf(ctx.reg, t.card).triggers?.[t.trigger] ?? fail('Unknown trigger');
+      const def = t.delayed ? { targets: [], upToOne: undefined } : defOf(ctx.reg, t.card).triggers?.[t.trigger] ?? fail('Unknown trigger');
       const options = def.targets.map((spec) => targetOptions(ctx, spec, p));
+      if (def.upToOne) { // the targets may be left unchosen: ask unless there is nothing to choose
+        if (options.every((o) => o.length === 0)) { stackTrigger(ctx, t.id, []); continue; }
+        setPending(ctx, { kind: 'chooseTargets', player: p, trigger: t.id, card: t.card, targetOptions: options, optional: true });
+        return false;
+      }
       if (options.some((o) => o.length === 0)) { // 603.3d: no legal target, the ability is removed
         s.pendingTriggers = s.pendingTriggers.filter((x) => x.id !== t.id);
         continue;
@@ -376,6 +403,13 @@ function targetOptions(ctx: Ctx, spec: TargetSpec, controller: PlayerId): Target
     case 'creature': return creatures;
     case 'creatureYouControl': return creatures.filter((t) => t.kind === 'object' && (s.objects[t.id] as GameObject).controller === controller);
     case 'creaturePowerAtMost2': return creatures.filter((t) => t.kind === 'object' && characteristics(s, ctx.reg, t.id).power <= 2);
+    case 'creatureOpponentControls': return creatures.filter((t) => t.kind === 'object' && (s.objects[t.id] as GameObject).controller !== controller);
+    case 'nonbasicLandOpponentControls':
+      return s.zones.battlefield.filter((id) => {
+        const o = s.objects[id] as GameObject;
+        return o.controller !== controller && isType(characteristics(s, ctx.reg, id), 'Land') && !ctx.reg.get(o.card)?.supertypes?.includes('Basic');
+      }).map((id): Target => ({ kind: 'object', id }));
+    case 'cardInGraveyard': return [...s.zones.graveyard.p1, ...s.zones.graveyard.p2].map((id): Target => ({ kind: 'object', id }));
     case 'landYouControl':
       return s.zones.battlefield.filter((id) => (s.objects[id] as GameObject).controller === controller && isType(characteristics(s, ctx.reg, id), 'Land')).map((id): Target => ({ kind: 'object', id }));
     case 'spell': return s.stack.filter((e) => e.kind === 'spell').map((e): Target => ({ kind: 'object', id: e.id }));
@@ -412,7 +446,7 @@ function legalActions(ctx: Ctx, p: PlayerId): LegalAction[] {
       continue;
     }
     if (!isType(def, 'Instant') && !sorcerySpeed) continue;
-    const opts = (def.spell?.targets ?? []).map((spec) => targetOptions(ctx, spec, p));
+    const opts = spellTargets(def).map((spec) => targetOptions(ctx, spec, p));
     if (!opts.every((o) => o.length > 0)) continue;
     out.push({ kind: 'cast', card: id, targetOptions: opts, cost: costToCast(ctx, p, def) });
     if (def.warp) out.push({ kind: 'cast', card: id, targetOptions: opts, cost: def.warp, warp: true });
@@ -422,7 +456,7 @@ function legalActions(ctx: Ctx, p: PlayerId): LegalAction[] {
     if (!castableFromExile(ctx, p, o)) continue;
     const def = defOf(ctx.reg, o.card);
     if (!isType(def, 'Instant') && !sorcerySpeed) continue;
-    const opts = (def.spell?.targets ?? []).map((spec) => targetOptions(ctx, spec, p));
+    const opts = spellTargets(def).map((spec) => targetOptions(ctx, spec, p));
     if (opts.every((x) => x.length > 0)) out.push({ kind: 'cast', card: id, targetOptions: opts, cost: costToCast(ctx, p, def) });
   }
   if (canPlayLand && staticsOf(ctx, p, 'playLandsFromGraveyard') > 0) {
@@ -442,6 +476,9 @@ function legalActions(ctx: Ctx, p: PlayerId): LegalAction[] {
   }
   return out;
 }
+
+/** A spell's targets: an Aura spell targets what it will enchant (303.4a). */
+const spellTargets = (def: CardDef): TargetSpec[] => (def.enchant ? [def.enchant] : def.spell?.targets ?? []);
 
 /** 702.185a: a card exiled with warp may be cast by its owner after the turn it was exiled on. */
 const castableFromExile = (ctx: Ctx, p: PlayerId, o: GameObject): boolean =>
@@ -571,7 +608,7 @@ function cast(ctx: Ctx, p: PlayerId, r: Extract<Response, { kind: 'cast' }>): vo
   if (isType(def, 'Land')) fail('Lands are played, not cast');
   if (!isType(def, 'Instant') && !canCastSorcerySpeed(ctx, p)) fail(`${def.name} can only be cast at sorcery speed`);
 
-  const specs = def.spell?.targets ?? [];
+  const specs = spellTargets(def);
   if (r.targets.length !== specs.length) fail(`Expected ${String(specs.length)} target(s)`);
   specs.forEach((spec, i) => { if (!isLegalTarget(ctx, spec, r.targets[i] as Target, null, p)) fail(`Illegal target #${String(i + 1)}`); });
 
@@ -595,14 +632,22 @@ function resolveTop(ctx: Ctx): boolean {
     const ability = entry.delayed ? { targets: [], effects: entry.delayed.effects, condition: undefined }
       : (entry.ability.kind === 'trigger' ? def.triggers?.[entry.ability.index] : def.activated?.[entry.ability.index]) ?? fail('Unknown ability');
     if ('condition' in ability && !conditionHolds(ctx, ability.condition, entry.source)) { ctx.events.push({ kind: 'resolved', spell: entry.id }); return true; } // 603.4
-    const legal = ability.targets.map((spec, i) => isLegalTarget(ctx, spec, entry.targets[i] as Target, null, entry.controller));
-    if (ability.targets.length > 0 && legal.every((l) => !l)) { ctx.events.push({ kind: 'fizzled', spell: entry.id }); return true; } // 608.2b
-    s.resolving = { entry, effects: ability.effects, targets: entry.targets, legal, next: 0 };
+    // Unchosen "up to one" targets are simply absent; only chosen ones can make it fizzle (608.2b).
+    const legal = ability.targets.map((spec, i) => i < entry.targets.length && isLegalTarget(ctx, spec, entry.targets[i] as Target, null, entry.controller));
+    if (entry.targets.length > 0 && legal.every((l) => !l)) { ctx.events.push({ kind: 'fizzled', spell: entry.id }); return true; }
+    s.resolving = { entry, effects: ability.effects, targets: entry.targets, legal, targetControllers: controllersOf(ctx, entry.targets), next: 0 };
     return continueResolution(ctx);
   }
 
   if (!def.spell) { // permanent spell
+    if (def.enchant && !isLegalTarget(ctx, def.enchant, entry.targets[0] as Target, entry.id, entry.controller)) { // 608.3b
+      ctx.events.push({ kind: 'fizzled', spell: entry.id });
+      moveObject(ctx, entry.id, 'graveyard');
+      return true;
+    }
     const permanent = moveObject(ctx, entry.id, 'battlefield', { controller: entry.controller });
+    const host = entry.targets[0];
+    if (def.enchant && host?.kind === 'object') (s.objects[permanent] as GameObject).attachedTo = host.id; // 303.4f
     if (entry.warp) { // 702.185a: exile it at the beginning of the next end step
       s.delayedTriggers.push({
         id: `d${String(s.nextId++)}`, card: entry.card, controller: entry.controller, subject: permanent, on: 'nextEndStep',
@@ -619,7 +664,7 @@ function resolveTop(ctx: Ctx): boolean {
     moveObject(ctx, entry.id, 'graveyard');
     return true;
   }
-  s.resolving = { entry, effects: def.spell.effects, targets: entry.targets, legal, next: 0 };
+  s.resolving = { entry, effects: def.spell.effects, targets: entry.targets, legal, targetControllers: controllersOf(ctx, entry.targets), next: 0 };
   return continueResolution(ctx);
 }
 
@@ -637,6 +682,9 @@ function continueResolution(ctx: Ctx): boolean {
   if (r.entry.kind === 'spell' && s.objects[r.entry.id]?.zone === 'stack') moveObject(ctx, r.entry.id, 'graveyard'); // 608.2n
   return true;
 }
+
+const controllersOf = (ctx: Ctx, targets: Target[]): (PlayerId | null)[] =>
+  targets.map((t) => (t.kind === 'object' ? ctx.s.objects[t.id]?.controller ?? null : null));
 
 const sourceOf = (r: Resolution): ObjectId => (r.entry.kind === 'spell' ? r.entry.id : r.entry.source);
 
@@ -753,11 +801,27 @@ function runEffect(ctx: Ctx, effect: Effect, r: Resolution): boolean {
         if (o.controller === controller && (ctx.reg.get(o.card)?.subtypes ?? []).some((st) => effect.subtypes.includes(st))) untilEndOfTurn(id, effect.ability);
       }
       break;
+    case 'enchantedFights': { // 701.14b: no damage if either is no longer a creature on the battlefield
+      const host = s.objects[source]?.attachedTo;
+      const other = objectTarget();
+      if (host === undefined || !isCreatureOnBattlefield(ctx, host) || !isCreatureOnBattlefield(ctx, other)) break;
+      const [hp, op] = [characteristics(s, ctx.reg, host).power, characteristics(s, ctx.reg, other).power];
+      dealDamage(ctx, host, { kind: 'object', id: other }, hp, false);
+      dealDamage(ctx, other, { kind: 'object', id: host }, op, false);
+      break;
+    }
+    case 'exileTarget': {
+      const exiled = moveObject(ctx, objectTarget(), 'exile');
+      if (effect.track) (s.objects[exiled] as GameObject).exiledBy = source;
+      break;
+    }
     case 'searchBasicLand': {
-      const cards = [...new Set(s.zones.library[controller].map((id) => (s.objects[id] as GameObject).card))]
+      const searcher = effect.who === 'targetController' ? r.targetControllers[effect.target ?? 0] ?? null : controller;
+      if (searcher === null) break;
+      const cards = [...new Set(s.zones.library[searcher].map((id) => (s.objects[id] as GameObject).card))]
         .filter((card) => defOf(ctx.reg, card).supertypes?.includes('Basic') && isType(defOf(ctx.reg, card), 'Land'));
-      if (cards.length === 0) { finishSearch(ctx, effect, controller, null); break; }
-      setPending(ctx, { kind: 'searchLibrary', player: controller, source: r.entry.card, cards });
+      if (cards.length === 0) { finishSearch(ctx, effect, searcher, null); break; }
+      setPending(ctx, { kind: 'searchLibrary', player: searcher, source: r.entry.card, cards });
       return false;
     }
   }
@@ -948,7 +1012,10 @@ function declareBlockers(ctx: Ctx, blocks: { blocker: ObjectId; attacker: Object
     if (!c.attackers.includes(b.attacker)) fail(`${b.blocker} cannot block ${b.attacker}`);
   }
   for (const a of new Set(blocks.map((b) => b.attacker))) { // 702.110b menace
-    if (has(ctx, a, 'Menace') && blocks.filter((b) => b.attacker === a).length < 2) fail('A creature with menace must be blocked by two or more creatures');
+    const n = blocks.filter((b) => b.attacker === a).length;
+    if (has(ctx, a, 'Menace') && n < 2) fail('A creature with menace must be blocked by two or more creatures');
+    const max = Math.min(...auraStatics(s, ctx.reg, a).map((st) => st.maxBlockers ?? Infinity));
+    if (n > max) fail(`That creature can't be blocked by more than ${String(max)} creature(s)`);
   }
   (s.combat ?? fail('No combat')).blocks = blocks;
   ctx.events.push({ kind: 'blockersDeclared', blocks });
@@ -1209,7 +1276,7 @@ function apply(ctx: Ctx, pending: PendingDecision, r: Response): void {
     }
     case 'chooseTargets': {
       const d = pending as Extract<PendingDecision, { kind: 'chooseTargets' }>;
-      if (r.targets.length !== d.targetOptions.length) fail(`Expected ${String(d.targetOptions.length)} target(s)`);
+      if (r.targets.length !== d.targetOptions.length && !(d.optional && r.targets.length === 0)) fail(`Expected ${String(d.targetOptions.length)} target(s)`);
       r.targets.forEach((t, i) => { if (!(d.targetOptions[i] ?? []).some((o) => sameTarget(o, t))) fail(`Illegal target #${String(i + 1)}`); });
       stackTrigger(ctx, d.trigger, r.targets);
       givePriority(ctx, s.priorityTo ?? s.turn.active);

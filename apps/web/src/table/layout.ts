@@ -65,7 +65,10 @@ export function layoutTable(view: PlayerView, playable: ReadonlySet<ObjectId> = 
     const s = side(p, me);
     const yaw = s === 1 ? 0 : Math.PI;
     const mine = view.zones.battlefield.map((id) => view.objects[id]).filter((o): o is VisibleObject => o?.controller === p);
-    const rows = [mine.filter((o) => !isLand(o)), mine.filter(isLand)];
+    const rows = [mine.filter((o) => !isLand(o) && o.attachedTo === undefined), mine.filter((o) => isLand(o) && o.attachedTo === undefined)];
+    for (const o of mine.filter((x) => x.attachedTo !== undefined)) { // placed under their host below
+      out.push({ key: o.id, card: o.card, owner: o.owner, x: 0, y: 0.01, z: s * 3, yaw, tilt: 0, badges: badgesOf(o), highlight: playable.has(o.id) ? 'playable' : null });
+    }
     rows.forEach((row, r) => {
       const xs = spread(row.length);
       row.forEach((o, i) => {
@@ -102,6 +105,14 @@ export function layoutTable(view: PlayerView, playable: ReadonlySet<ObjectId> = 
     b.x = a.x + k * 0.6;
     b.z = a.z - Math.sign(a.z) * (CARD_H + 0.3);
     b.y = 0.05 + k * 0.01;
+  }
+  // An Aura tucks under the permanent it enchants, peeking out behind it.
+  for (const id of view.zones.battlefield) {
+    const host = view.objects[id]?.attachedTo;
+    const aura = byKey.get(id);
+    const under = host === undefined ? undefined : byKey.get(host);
+    if (!aura || !under) continue;
+    Object.assign(aura, { x: under.x + 0.35, z: under.z - Math.sign(under.z || 1) * 0.6, y: under.y - 0.006 });
   }
 
   // The viewer's hand stands up in front of the camera; the opponent's is face down at the far edge.

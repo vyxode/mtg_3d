@@ -230,13 +230,13 @@ function MyDecision({ view, d, nameOf, send, onError }: { view: PlayerView; d: P
     case 'chooseTargets':
       return (<>
         <h3>{d.card}: elige objetivo</h3>
-        <TargetPicker options={d.targetOptions} view={view} nameOf={nameOf} onDone={(targets) => void send({ kind: 'chooseTargets', targets })} />
+        <TargetPicker options={d.targetOptions} view={view} nameOf={nameOf} optional={d.optional === true} onDone={(targets) => void send({ kind: 'chooseTargets', targets })} />
       </>);
   }
 }
 
 /** Picks one target per slot, then calls onDone with all of them. */
-function TargetPicker({ options, view, nameOf, onDone, onCancel }: { options: Target[][]; view: PlayerView; nameOf: (p: PlayerId) => string; onDone: (t: Target[]) => void; onCancel?: () => void }) {
+function TargetPicker({ options, view, nameOf, onDone, onCancel, optional }: { options: Target[][]; view: PlayerView; nameOf: (p: PlayerId) => string; onDone: (t: Target[]) => void; onCancel?: () => void; optional?: boolean }) {
   const [chosen, setChosen] = useState<Target[]>([]);
   const slot = options[chosen.length] ?? [];
   return (<>
@@ -247,6 +247,7 @@ function TargetPicker({ options, view, nameOf, onDone, onCancel }: { options: Ta
         if (next.length === options.length) onDone(next); else setChosen(next);
       }}>{targetLabel(t, view, nameOf)}</button>
     ))}
+    {optional && chosen.length === 0 && <button className="link" onClick={() => { onDone([]); }}>Sin objetivo</button>}
     {onCancel && <button className="link" onClick={onCancel}>Cancelar</button>}
   </>);
 }

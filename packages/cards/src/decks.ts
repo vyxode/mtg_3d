@@ -24,12 +24,13 @@ export const PRESET_DECKS: Record<string, string[]> = {
     [4, "Ajani's Pridemate"], [2, 'Isamaru, Hound of Konda'], [4, 'Inspiring Overseer'], [4, 'Vampire Nighthawk'], [3, 'Typhoid Rats'],
     [3, 'Jace Beleren'], [4, 'Murder'], [3, 'Counterspell'], [4, 'Raise the Alarm'], [3, 'Glorious Anthem'], [2, 'Divination'],
   ]),
-  // Standard's top deck (Mono-Green Landfall, Aug 2026): 51 of its 60 cards. Esper Origins, Meltstrider's Resolve,
-  // Keen-Eyed Curator, Lumbering Worldwagon and Demolition Field are not implemented yet; implemented cards fill their slots.
-  'Landfall verde (meta, 51/60 originales)': expand([
-    [15, 'Forest'], [4, 'Escape Tunnel'], [4, 'Fabled Passage'], [3, 'Ba Sing Se'],
+  // Standard's top deck (Mono-Green Landfall, Aug 2026): 55 of its 60 cards. Esper Origins and Lumbering Worldwagon are not
+  // implemented yet; Mossborn Hydra and a third Shared Roots fill their slots.
+  'Landfall verde (meta, 55/60 originales)': expand([
+    [14, 'Forest'], [4, 'Escape Tunnel'], [4, 'Fabled Passage'], [3, 'Ba Sing Se'], [1, 'Demolition Field'],
     [4, 'Llanowar Elves'], [4, "Sazh's Chocobo"], [4, 'Earthbender Ascension'], [4, 'Icetill Explorer'], [4, 'Mightform Harmonizer'],
-    [3, 'Sapling Nursery'], [4, 'Shared Roots'], [1, 'Surrak, Elusive Hunter'], [4, 'Mossborn Hydra'], [2, 'Giant Growth'],
+    [3, 'Sapling Nursery'], [2, "Meltstrider's Resolve"], [3, 'Shared Roots'], [1, 'Keen-Eyed Curator'], [1, 'Surrak, Elusive Hunter'],
+    [4, 'Mossborn Hydra'],
   ]),
   'Golgari (verde-negro)': expand([
     [13, 'Forest'], [11, 'Swamp'],
