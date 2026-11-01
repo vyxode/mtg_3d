@@ -1,9 +1,10 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { CARDS } from '@mtg3d/cards';
 import type { GameEvent, LegalAction, ManaType, ObjectId, PendingDecision, PlayerId, PlayerView, Response, Step, Target, VisibleObject } from '@mtg3d/engine';
 import type { GameUpdate, RoomState } from '@mtg3d/protocol';
 import { autopay } from './autopay';
 import { ask, cardImage } from './net';
+import { Table3D, webglAvailable } from './table/Table3D';
 
 const STEP_NAMES: Record<Step, string> = {
   untap: 'Enderezar', upkeep: 'Mantenimiento', draw: 'Robar', main1: 'Fase principal 1',
@@ -44,6 +45,16 @@ export function Game({ room, update, onError }: Props) {
     onError(r.ok ? null : (r.error ?? 'Error'));
   };
 
+  const [mode, setMode] = useState<'3d' | '2d'>(() => {
+    try { if (localStorage.getItem('mtg3d.table') === '2d') return '2d'; } catch { /* storage blocked */ }
+    return webglAvailable() ? '3d' : '2d';
+  });
+  const switchMode = () => {
+    const next = mode === '3d' ? '2d' : '3d';
+    setMode(next);
+    try { localStorage.setItem('mtg3d.table', next); } catch { /* storage blocked */ }
+  };
+
   const battlefield = (p: PlayerId) => view.zones.battlefield.map((id) => view.objects[id]).filter((o): o is VisibleObject => o?.controller === p);
 
   return (
@@ -51,6 +62,7 @@ export function Game({ room, update, onError }: Props) {
       <section className="status">
         <span>Turno {view.turn.number} · {nameOf(view.turn.active)} · <b>{STEP_NAMES[view.turn.step]}</b></span>
         <FullControl room={room} />
+        <button onClick={switchMode}>{mode === '3d' ? 'Mesa 2D' : 'Mesa 3D'}</button>
         {!view.result && <button className="danger" onClick={() => { if (confirm('¿Conceder la partida?')) void ask('game:input', { concede: true }); }}>Conceder</button>}
       </section>
 
@@ -59,7 +71,8 @@ export function Game({ room, update, onError }: Props) {
       )}
 
       <PlayerBar view={view} p={opp} name={nameOf(opp)} />
-      <Zone title={`Campo de ${nameOf(opp)}`} cards={battlefield(opp)} />
+      {mode === '2d' && <Zone title={`Campo de ${nameOf(opp)}`} cards={battlefield(opp)} />}
+      {mode === '3d' && <Table3D view={view} events={update.events} usable={new Set(mine?.kind === 'priority' ? usableActions(view, mine.legal).filter((a) => a.kind !== 'activateMana').map(subject) : [])} />}
 
       <section className="middle">
         <div className="stack">
@@ -79,9 +92,9 @@ export function Game({ room, update, onError }: Props) {
         </div>
       </section>
 
-      <Zone title="Tu campo" cards={battlefield(me)} />
+      {mode === '2d' && <Zone title="Tu campo" cards={battlefield(me)} />}
       <PlayerBar view={view} p={me} name={`${nameOf(me)} (tú)`} />
-      <Zone title="Tu mano" cards={view.zones.hand.map((id) => view.objects[id]).filter((o): o is VisibleObject => !!o)} />
+      {mode === '2d' && <Zone title="Tu mano" cards={view.zones.hand.map((id) => view.objects[id]).filter((o): o is VisibleObject => !!o)} />}
       <details>
         <summary>Cementerios</summary>
         {(['p1', 'p2'] as const).map((p) => (
@@ -301,19 +314,27 @@ function DamageSplit({ view, d, send }: { view: PlayerView; d: Extract<PendingDe
 
 type Targeted = Extract<LegalAction, { kind: 'cast' | 'activate' }>;
 
+const subject = (a: LegalAction) => (a.kind === 'activateMana' || a.kind === 'activate' ? a.source : a.card);
+
+/** The automatic payment for a spell or ability, or null if the available mana cannot pay it. */
+function paymentFor(view: PlayerView, legal: LegalAction[], a: Targeted): ObjectId[] | null {
+  const sources = legal.flatMap((l) => (l.kind === 'activateMana' ? [l.source] : []));
+  const cardOf = (id: ObjectId) => view.objects[id]?.card ?? '';
+  if (a.kind === 'cast') return autopay(view, CARDS, sources, CARDS.get(cardOf(a.card))?.manaCost ?? null);
+  // A {T} ability cannot tap its own source for mana.
+  const ab = CARDS.get(cardOf(a.source))?.activated?.[a.ability];
+  return autopay(view, CARDS, ab?.cost.tap ? sources.filter((x) => x !== a.source) : sources, ab?.cost.mana ?? null);
+}
+
+/** Legal actions the player can afford right now: the ones offered as buttons and highlighted on the table. */
+function usableActions(view: PlayerView, legal: LegalAction[]): LegalAction[] {
+  return legal.filter((a) => a.kind === 'playLand' || a.kind === 'activateMana' || paymentFor(view, legal, a) !== null);
+}
+
 function Priority({ view, d, nameOf, send, onError }: { view: PlayerView; d: Extract<PendingDecision, { kind: 'priority' }>; nameOf: (p: PlayerId) => string; send: (r: Response) => Promise<void>; onError: (e: string | null) => void }) {
   const [pending, setPending] = useState<Targeted | null>(null);
-  const sources = useMemo(() => d.legal.flatMap((a) => (a.kind === 'activateMana' ? [a.source] : [])), [d.legal]);
   const cardOf = (id: ObjectId) => view.objects[id]?.card ?? '';
-  const subject = (a: LegalAction) => (a.kind === 'activateMana' || a.kind === 'activate' ? a.source : a.card);
-
-  /** Mana cost and the sources allowed to pay it (a {T} ability cannot tap its own source for mana). */
-  const costOf = (a: Targeted) => {
-    if (a.kind === 'cast') return { cost: CARDS.get(cardOf(a.card))?.manaCost ?? null, from: sources };
-    const ab = CARDS.get(cardOf(a.source))?.activated?.[a.ability];
-    return { cost: ab?.cost.mana ?? null, from: ab?.cost.tap ? sources.filter((x) => x !== a.source) : sources };
-  };
-  const payment = (a: Targeted) => { const c = costOf(a); return autopay(view, CARDS, c.from, c.cost); };
+  const payment = (a: Targeted) => paymentFor(view, d.legal, a);
 
   const finish = (a: Targeted, targets: Target[]) => {
     const pay = payment(a);
@@ -339,7 +360,7 @@ function Priority({ view, d, nameOf, send, onError }: { view: PlayerView; d: Ext
     </>);
   }
 
-  const usable = d.legal.filter((a) => a.kind === 'playLand' || a.kind === 'activateMana' || payment(a) !== null);
+  const usable = usableActions(view, d.legal);
   const label = (a: LegalAction): string[] => {
     if (a.kind === 'playLand') return [`Jugar ${cardOf(a.card)}`];
     if (a.kind === 'cast') return [`Lanzar ${cardOf(a.card)}`];

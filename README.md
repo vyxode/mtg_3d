@@ -16,9 +16,10 @@ Proyecto de fans, no oficial y sin ánimo de lucro. Magic: The Gathering y sus i
 | D2a/D2b — Reglas | Hecho: 12 palabras clave, disparadas, activadas, estáticas, fichas, contadores, planeswalkers, tierras dobles y de choque, leyendas; 55 cartas, 5 mazos |
 | B — Biblioteca (Scryfall) | Hecho: `pnpm cards:sync` importa todo Scryfall; búsqueda por filtros en `/api/cards` ([ADR 0002](docs/adr/0002-catalogo-en-memoria.md)) |
 | C — Constructor de mazos | Hecho: búsqueda con filtros, explorador de expansiones, impresiones, añadir con clic o arrastrando, banquillo, curva y colores, validación por formato, importar/exportar lista, duplicar/borrar. Indica qué cartas no puede jugar aún el motor. Los mazos se guardan en este navegador (pasan al servidor en la fase G) |
-| F, D3, G, H | Pendiente |
+| F — Mesa 3D | Hecho: React Three Fiber, animación de cambios de zona, combate visible, cartas usables resaltadas, vista previa al pasar el ratón, cámaras jugador/cenital, respaldo 2D ([ADR 0003](docs/adr/0003-mesa-3d.md)) |
+| D3, G, H | Pendiente |
 
-## Jugar ya (interfaz 2D de depuración)
+## Jugar ya
 
 Requisitos: Node.js 22 (`.nvmrc`) y pnpm 10 (`corepack enable`).
 
@@ -51,7 +52,7 @@ cp .env.example .env && pnpm db:up   # PostgreSQL 16 (se usará en la fase B2)
 ```
 apps/
   server/    Node + Socket.IO: salas, autoridad de la partida, proyecciones; sirve la web compilada
-  web/       React + Vite: vestíbulo, sala y mesa 2D de depuración (la mesa 3D llega en la fase F)
+  web/       React + Vite: vestíbulo, sala, constructor de mazos, mesa 3D (`src/table/`) y mesa 2D de respaldo
 packages/
   engine/    motor de reglas puro: sin React, Three.js, red, base de datos ni APIs de Node
   cards/     definiciones de cartas (DSL), mazos predefinidos y tests de reglas con cartas reales

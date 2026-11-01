@@ -96,3 +96,9 @@ nav { display: flex; gap: 4px; }
 .filters input[type='checkbox'] { width: auto; }
 .result-name { display: block; padding: 0; margin: 2px 0; font-size: 13px; text-align: left; color: var(--text); text-decoration: none; }
 .deck h3 { margin-top: 12px; }
+
+.table3d { position: relative; height: 64vh; min-height: 380px; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+.hud-cameras { position: absolute; top: 8px; left: 8px; display: flex; }
+.hud-preview { position: absolute; top: 8px; right: 8px; width: 240px; background: rgba(15,17,19,.88); border: 1px solid var(--line); border-radius: 10px; padding: 8px; pointer-events: none; }
+.hud-preview img { width: 100%; aspect-ratio: 63 / 88; object-fit: contain; border-radius: 8px; display: block; }
+.hud-preview p { margin: 6px 0 0; font-size: 13px; }
