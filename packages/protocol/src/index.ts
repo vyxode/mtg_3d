@@ -19,7 +19,7 @@ export const responseSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('cast'), card: id, targets: z.array(target).max(10), payment: z.array(id).max(60) }),
   z.object({ kind: z.literal('activateMana'), source: id, mana: z.enum(['W', 'U', 'B', 'R', 'G', 'C']).optional() }),
   z.object({ kind: z.literal('activate'), source: id, ability: z.number().int().min(0).max(20), targets: z.array(target).max(10), payment: z.array(id).max(60) }),
-  z.object({ kind: z.literal('declareAttackers'), attackers: z.array(id).max(200) }),
+  z.object({ kind: z.literal('declareAttackers'), attackers: z.array(id).max(200), planeswalkerTargets: z.record(id, id).optional() }),
   z.object({ kind: z.literal('declareBlockers'), blocks: z.array(z.object({ blocker: id, attacker: id })).max(200) }),
   z.object({ kind: z.literal('assignCombatDamage'), assignment: z.record(id, z.number().int().min(0).max(1000)) }),
   z.object({ kind: z.literal('discard'), cards: z.array(id).max(60) }),

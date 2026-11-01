@@ -74,7 +74,7 @@ function newObject(ctx: Ctx, card: string, owner: PlayerId, zone: ZoneName): Obj
   const id = `o${String(ctx.s.nextId++)}`;
   ctx.s.objects[id] = {
     id, card, owner, controller: owner, zone,
-    tapped: false, damage: 0, summoningSick: true, deathtouchDamage: false, counters: 0, timestamp: ctx.s.nextTimestamp++,
+    tapped: false, damage: 0, summoningSick: true, deathtouchDamage: false, counters: 0, loyalty: 0, loyaltyTurn: 0, timestamp: ctx.s.nextTimestamp++,
   };
   return id;
 }
@@ -107,6 +107,7 @@ function moveObject(ctx: Ctx, id: ObjectId, to: ZoneName, opts: { bottom?: boole
     if (to === 'library' && !opts.bottom) toList.unshift(newId);
     else toList.push(newId);
   }
+  if (to === 'battlefield') moved.loyalty = ctx.reg.get(obj.card)?.loyalty ?? 0; // 306.5b
   const etb = to === 'battlefield' ? ctx.reg.get(obj.card)?.etb : undefined;
   if (etb && 'tapped' in etb) moved.tapped = true; // 614.1c
   if (etb && 'tappedUnlessPayLife' in etb) { // 614.12: the choice is made as it enters
@@ -161,6 +162,7 @@ function runSBA(ctx: Ctx): boolean {
     const toGraveyard: ObjectId[] = [];
     for (const id of s.zones.battlefield) {
       const c = characteristics(s, ctx.reg, id);
+      if (isType(c, 'Planeswalker') && (s.objects[id] as GameObject).loyalty <= 0) { toGraveyard.push(id); continue; } // 704.5i
       if (!isType(c, 'Creature')) continue;
       const o = s.objects[id] as GameObject;
       if (c.toughness <= 0) toGraveyard.push(id); // 704.5f (not destruction: indestructible doesn't help)
@@ -302,9 +304,11 @@ function canCastSorcerySpeed(ctx: Ctx, p: PlayerId): boolean {
 function targetOptions(ctx: Ctx, spec: TargetSpec): Target[] {
   const s = ctx.s;
   const creatures = s.zones.battlefield.filter((id) => isCreatureOnBattlefield(ctx, id)).map((id): Target => ({ kind: 'object', id }));
+  const players = (['p1', 'p2'] as const).filter((p) => !s.players[p].lost).map((p): Target => ({ kind: 'player', player: p }));
+  const walkers = s.zones.battlefield.filter((id) => isType(characteristics(s, ctx.reg, id), 'Planeswalker')).map((id): Target => ({ kind: 'object', id }));
   switch (spec) {
-    case 'anyTarget':
-      return [...(['p1', 'p2'] as const).filter((p) => !s.players[p].lost).map((p): Target => ({ kind: 'player', player: p })), ...creatures];
+    case 'player': return players;
+    case 'anyTarget': return [...players, ...creatures, ...walkers]; // 115.4
     case 'creature': return creatures;
     case 'spell': return s.stack.filter((e) => e.kind === 'spell').map((e): Target => ({ kind: 'object', id: e.id }));
   }
@@ -349,6 +353,7 @@ function legalActions(ctx: Ctx, p: PlayerId): LegalAction[] {
     if (o.controller !== p) continue;
     defOf(ctx.reg, o.card).activated?.forEach((ab, ability) => {
       if (ab.cost.tap && !canTapForCost(ctx, id)) return;
+      if (ab.cost.loyalty !== undefined && !canPayLoyalty(ctx, p, id, ab.cost.loyalty)) return;
       const opts = ab.targets.map((spec) => targetOptions(ctx, spec));
       if (opts.every((x) => x.length > 0)) out.push({ kind: 'activate', source: id, ability, targetOptions: opts });
     });
@@ -387,6 +392,12 @@ const canTapForCost = (ctx: Ctx, id: ObjectId): boolean => {
   return !o.tapped && !(isType(defOf(ctx.reg, o.card), 'Creature') && isSick(ctx, id));
 };
 
+/** 606.3: sorcery speed, once per turn per planeswalker, and a minus cost needs enough loyalty. */
+function canPayLoyalty(ctx: Ctx, p: PlayerId, id: ObjectId, cost: number): boolean {
+  const o = ctx.s.objects[id] as GameObject;
+  return canCastSorcerySpeed(ctx, p) && o.loyaltyTurn !== ctx.s.turn.number && o.loyalty + cost >= 0;
+}
+
 function activate(ctx: Ctx, p: PlayerId, r: Extract<Response, { kind: 'activate' }>): void {
   const s = ctx.s;
   const obj = s.objects[r.source];
@@ -398,8 +409,14 @@ function activate(ctx: Ctx, p: PlayerId, r: Extract<Response, { kind: 'activate'
     if (!canTapForCost(ctx, r.source)) fail('It cannot be tapped to pay this cost');
     if (r.payment.includes(r.source)) fail('The same permanent cannot also tap for mana');
   }
+  if (ab.cost.loyalty !== undefined && !canPayLoyalty(ctx, p, r.source, ab.cost.loyalty)) fail('That loyalty ability cannot be activated now');
   payCost(ctx, p, r.payment, ab.cost.mana ?? { generic: 0 });
   if (ab.cost.tap) tap(ctx, r.source);
+  if (ab.cost.loyalty !== undefined) {
+    const o = s.objects[r.source] as GameObject;
+    o.loyalty += ab.cost.loyalty;
+    o.loyaltyTurn = s.turn.number;
+  }
   const id = `a${String(s.nextId++)}`;
   s.stack.push({ kind: 'ability', id, card: (obj as GameObject).card, source: r.source, ability: { kind: 'activated', index: r.ability }, controller: p, targets: r.targets });
   ctx.events.push({ kind: 'activated', card: (obj as GameObject).card, controller: p, ability: id });
@@ -500,6 +517,13 @@ function runEffects(ctx: Ctx, effects: Effect[], targets: Target[], legal: boole
     switch (effect.kind) {
       case 'damage': dealDamage(ctx, source, t as Target, effect.amount, false); break;
       case 'draw': for (let i = 0; i < effect.amount; i++) draw(ctx, controller); break;
+      case 'drawEach': for (const p of [s.turn.active, other(s.turn.active)]) for (let i = 0; i < effect.amount; i++) draw(ctx, p); break; // APNAP
+      case 'targetDraws': for (let i = 0; i < effect.amount; i++) draw(ctx, (t as Extract<Target, { kind: 'player' }>).player); break;
+      case 'mill': {
+        const p = (t as Extract<Target, { kind: 'player' }>).player;
+        for (const id of s.zones.library[p].slice(0, effect.amount)) moveObject(ctx, id, 'graveyard'); // 701.17
+        break;
+      }
       case 'gainLife': setLife(ctx, controller, s.players[controller].life + effect.amount); break;
       case 'destroy': { // 701.8: indestructible permanents are not destroyed
         const id = (t as Extract<Target, { kind: 'object' }>).id;
@@ -549,7 +573,8 @@ function dealDamage(ctx: Ctx, source: ObjectId, target: Target, amount: number, 
   if (target.kind === 'player') setLife(ctx, target.player, ctx.s.players[target.player].life - amount);
   else {
     const o = ctx.s.objects[target.id] as GameObject;
-    o.damage += amount;
+    if (isType(characteristics(ctx.s, ctx.reg, target.id), 'Planeswalker')) o.loyalty -= amount; // 306.8 (120.3c)
+    else o.damage += amount;
     if (src && has(ctx, source, 'Deathtouch')) o.deathtouchDamage = true;
   }
   ctx.events.push({ kind: 'damage', source, target, amount, combat });
@@ -584,7 +609,10 @@ function enterStep(ctx: Ctx, step: Step): void {
       s.combat = { attackers: [], blocks: [], assignments: {}, damageStep: null, firstStrikers: [] };
       const candidates = s.zones.battlefield.filter((id) => canAttack(ctx, id, active));
       if (candidates.length === 0) { ctx.events.push({ kind: 'attackersDeclared', attackers: [] }); givePriority(ctx, active); }
-      else setPending(ctx, { kind: 'declareAttackers', player: active, candidates });
+      else {
+        const planeswalkers = s.zones.battlefield.filter((id) => (s.objects[id] as GameObject).controller !== active && isType(characteristics(s, ctx.reg, id), 'Planeswalker'));
+        setPending(ctx, { kind: 'declareAttackers', player: active, candidates, planeswalkers });
+      }
       return;
     }
     case 'declareBlockers': {
@@ -665,15 +693,18 @@ function canBlock(ctx: Ctx, blocker: ObjectId, attacker: ObjectId): boolean {
   return !has(ctx, attacker, 'Flying') || has(ctx, blocker, 'Flying') || has(ctx, blocker, 'Reach');
 }
 
-function declareAttackers(ctx: Ctx, attackers: ObjectId[]): void {
+function declareAttackers(ctx: Ctx, attackers: ObjectId[], walkers: Record<ObjectId, ObjectId> = {}): void {
   const s = ctx.s;
   const pending = s.pending as Extract<PendingDecision, { kind: 'declareAttackers' }>;
   if (new Set(attackers).size !== attackers.length) fail('Duplicate attacker');
   for (const id of attackers) if (!pending.candidates.includes(id)) fail(`${id} cannot attack`);
+  for (const [a, pw] of Object.entries(walkers)) {
+    if (!attackers.includes(a) || !pending.planeswalkers.includes(pw)) fail(`${a} cannot attack ${pw}`);
+  }
   const combat = s.combat ?? fail('No combat');
   for (const id of attackers) {
     if (!has(ctx, id, 'Vigilance')) tap(ctx, id); // 702.20b
-    combat.attackers.push({ id, defending: other(s.turn.active) });
+    combat.attackers.push({ id, defending: other(s.turn.active), planeswalker: walkers[id] });
   }
   ctx.events.push({ kind: 'attackersDeclared', attackers });
   givePriority(ctx, s.turn.active);
@@ -739,7 +770,9 @@ function continueCombatDamage(ctx: Ctx): void {
   for (const a of combat.attackers) {
     if (!onBattlefield(s, a.id) || !dealsNow(a.id)) continue;
     const power = characteristics(s, ctx.reg, a.id).power;
-    const defender: Target = { kind: 'player', player: a.defending };
+    // An attacker aimed at a planeswalker that left the battlefield deals no combat damage to anything (506.4c).
+    if (a.planeswalker && !onBattlefield(s, a.planeswalker)) continue;
+    const defender: Target = a.planeswalker ? { kind: 'object', id: a.planeswalker } : { kind: 'player', player: a.defending };
     const wasBlocked = combat.blocks.some((b) => b.attacker === a.id); // 509.1h: stays blocked even if blockers leave
     const blockers = aliveBlockers(ctx, a.id);
     const assignment = combat.assignments[a.id];
@@ -915,7 +948,7 @@ function apply(ctx: Ctx, pending: PendingDecision, r: Response): void {
       givePriority(ctx, s.priorityTo ?? s.turn.active);
       return;
     }
-    case 'declareAttackers': declareAttackers(ctx, r.attackers); return;
+    case 'declareAttackers': declareAttackers(ctx, r.attackers, r.planeswalkerTargets); return;
     case 'declareBlockers': declareBlockers(ctx, r.blocks); return;
     case 'assignCombatDamage': assignCombatDamage(ctx, r.assignment); return;
     case 'discard': {

@@ -123,6 +123,7 @@ export function CardView({ o, selected, onClick }: { o: VisibleObject; selected?
       {!broken && <img src={cardImage(o.card)} alt={o.card} loading="lazy" onError={() => { setBroken(true); }} />}
       {o.zone === 'battlefield' && isCreature && <span className="pt">{o.power}/{o.toughness}{o.damage > 0 ? ` (−${String(o.damage)})` : ''}</span>}
       {o.zone === 'battlefield' && isCreature && o.summoningSick && <span className="sick">mareada</span>}
+      {o.zone === 'battlefield' && CARDS.get(o.card)?.types.includes('Planeswalker') && <span className="pt">◆ {o.loyalty}</span>}
     </button>
   );
 }
@@ -182,11 +183,7 @@ function MyDecision({ view, d, nameOf, send, onError }: { view: PlayerView; d: P
         <button disabled={picked.size !== d.count} onClick={() => void send({ kind: d.kind, cards: [...picked] })}>Confirmar</button>
       </>);
     case 'declareAttackers':
-      return (<>
-        <h3>Elige atacantes</h3>
-        <Zone title="Puedes atacar con" cards={d.candidates.map((id) => view.objects[id]).filter((o): o is VisibleObject => !!o)} selected={picked} onClick={toggle} />
-        <button onClick={() => void send({ kind: 'declareAttackers', attackers: [...picked] })}>{picked.size ? `Atacar con ${String(picked.size)}` : 'No atacar'}</button>
-      </>);
+      return <Attackers view={view} d={d} send={send} nameOf={nameOf} />;
     case 'declareBlockers':
       return <Blockers view={view} d={d} send={send} />;
     case 'assignCombatDamage':
@@ -236,6 +233,28 @@ function OrderTriggers({ d, send }: { d: Extract<PendingDecision, { kind: 'order
     ))}
     <button className="primary" disabled={order.length !== d.triggers.length} onClick={() => void send({ kind: 'orderTriggers', order })}>Confirmar</button>
     <button className="link" onClick={() => { setOrder([]); }}>Reiniciar</button>
+  </>);
+}
+
+function Attackers({ view, d, send, nameOf }: { view: PlayerView; d: Extract<PendingDecision, { kind: 'declareAttackers' }>; send: (r: Response) => Promise<void>; nameOf: (p: PlayerId) => string }) {
+  const [picked, setPicked] = useState<Set<ObjectId>>(new Set());
+  const [aims, setAims] = useState<Record<ObjectId, ObjectId>>({});
+  const toggle = (id: ObjectId) => { setPicked((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; }); };
+  const opp = nameOf(view.viewer === 'p1' ? 'p2' : 'p1');
+  return (<>
+    <h3>Elige atacantes</h3>
+    <Zone title="Puedes atacar con" cards={d.candidates.map((id) => view.objects[id]).filter((o): o is VisibleObject => !!o)} selected={picked} onClick={toggle} />
+    {d.planeswalkers.length > 0 && [...picked].map((a) => (
+      <label key={a} className="row">{view.objects[a]?.card} ataca a
+        <select value={aims[a] ?? ''} onChange={(e) => { const next = { ...aims }; if (e.target.value) next[a] = e.target.value; else Reflect.deleteProperty(next, a); setAims(next); }}>
+          <option value="">{opp}</option>
+          {d.planeswalkers.map((pw) => <option key={pw} value={pw}>{view.objects[pw]?.card}</option>)}
+        </select>
+      </label>
+    ))}
+    <button onClick={() => void send({ kind: 'declareAttackers', attackers: [...picked], planeswalkerTargets: Object.fromEntries(Object.entries(aims).filter(([a]) => picked.has(a))) })}>
+      {picked.size ? `Atacar con ${String(picked.size)}` : 'No atacar'}
+    </button>
   </>);
 }
 

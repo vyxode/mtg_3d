@@ -16,6 +16,8 @@ export interface VisibleObject {
   summoningSick: boolean;
   power: number;
   toughness: number;
+  loyalty: number;
+  counters: number;
 }
 
 export interface PlayerView {
@@ -52,7 +54,7 @@ export function viewFor(s: GameState, reg: CardRegistry, viewer: PlayerId): Play
     const c = characteristics(s, reg, o.id);
     objects[o.id] = {
       id: o.id, card: o.card, owner: o.owner, controller: o.controller, zone: o.zone,
-      tapped: o.tapped, damage: o.damage, summoningSick: o.summoningSick, power: c.power, toughness: c.toughness,
+      tapped: o.tapped, damage: o.damage, summoningSick: o.summoningSick, power: c.power, toughness: c.toughness, loyalty: o.loyalty, counters: o.counters,
     };
   }
   const player = (p: PlayerId) => {

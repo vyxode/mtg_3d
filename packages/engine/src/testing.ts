@@ -40,7 +40,7 @@ export function scenario(reg: CardRegistry, o: ScenarioOptions = {}): GameState 
   const add = (card: string, owner: PlayerId, zone: 'library' | 'hand' | 'graveyard' | 'battlefield', extra: Partial<{ tapped: boolean; sick: boolean; damage: number }> = {}) => {
     if (!reg.has(card)) throw new Error(`Unknown card in scenario: ${card}`);
     const id = `o${String(s.nextId++)}`;
-    s.objects[id] = { id, card, owner, controller: owner, zone, tapped: extra.tapped ?? false, damage: extra.damage ?? 0, summoningSick: extra.sick ?? false, deathtouchDamage: false, counters: 0, timestamp: s.nextTimestamp++ };
+    s.objects[id] = { id, card, owner, controller: owner, zone, tapped: extra.tapped ?? false, damage: extra.damage ?? 0, summoningSick: extra.sick ?? false, deathtouchDamage: false, counters: 0, loyalty: reg.get(card)?.loyalty ?? 0, loyaltyTurn: 0, timestamp: s.nextTimestamp++ };
     if (zone === 'battlefield') s.zones.battlefield.push(id);
     else s.zones[zone][owner].push(id);
   };

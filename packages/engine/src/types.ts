@@ -25,11 +25,14 @@ export interface ManaCost {
   W?: number; U?: number; B?: number; R?: number; G?: number; C?: number;
 }
 
-export type TargetSpec = 'anyTarget' | 'creature' | 'spell';
+export type TargetSpec = 'anyTarget' | 'creature' | 'spell' | 'player';
 
 export type Effect =
   | { kind: 'damage'; amount: number; target: number }
   | { kind: 'draw'; amount: number }
+  | { kind: 'drawEach'; amount: number }
+  | { kind: 'targetDraws'; target: number; amount: number }
+  | { kind: 'mill'; target: number; amount: number }
   | { kind: 'gainLife'; amount: number }
   | { kind: 'counter'; target: number }
   | { kind: 'destroy'; target: number }
@@ -60,7 +63,8 @@ export interface TriggerDef {
 export interface ActivatedDef {
   /** Shown to players, e.g. "{T}: 1 damage to any target". */
   text: string;
-  cost: { mana?: ManaCost; tap?: boolean };
+  /** loyalty: +N adds, -N removes loyalty counters; a loyalty ability is sorcery-speed and once per turn (606.3). */
+  cost: { mana?: ManaCost; tap?: boolean; loyalty?: number };
   targets: TargetSpec[];
   effects: Effect[];
 }
@@ -85,6 +89,8 @@ export interface CardDef {
   subtypes?: string[];
   power?: number;
   toughness?: number;
+  /** Starting loyalty of a planeswalker (306.5b). */
+  loyalty?: number;
   /** Instants and sorceries: targets and effects of the spell ability. */
   spell?: { targets: TargetSpec[]; effects: Effect[] };
   manaAbilities?: ManaAbility[];
@@ -126,6 +132,9 @@ export interface GameObject {
   deathtouchDamage: boolean;
   /** shortcut: only +1/+1 counters exist; becomes a record of counter kinds when -1/-1 and others arrive. */
   counters: number;
+  loyalty: number;
+  /** Turn number of its last loyalty activation (606.3). */
+  loyaltyTurn: number;
   timestamp: number;
 }
 
@@ -158,7 +167,8 @@ export interface ContinuousEffect {
 }
 
 export interface CombatState {
-  attackers: { id: ObjectId; defending: PlayerId }[];
+  /** `planeswalker` set when attacking a planeswalker instead of the player (508.1b). */
+  attackers: { id: ObjectId; defending: PlayerId; planeswalker?: ObjectId | undefined }[];
   blocks: { blocker: ObjectId; attacker: ObjectId }[];
   /** Damage division chosen by the attacking player; the key 'player' is damage trampled over to the defender. */
   assignments: Record<ObjectId, Record<string, number>>;
@@ -223,7 +233,7 @@ export type PendingDecision =
   | (DecisionBase & { kind: 'mulligan'; mulligans: number })
   | (DecisionBase & { kind: 'bottomCards'; count: number })
   | (DecisionBase & { kind: 'priority'; legal: LegalAction[] })
-  | (DecisionBase & { kind: 'declareAttackers'; candidates: ObjectId[] })
+  | (DecisionBase & { kind: 'declareAttackers'; candidates: ObjectId[]; planeswalkers: ObjectId[] })
   | (DecisionBase & { kind: 'declareBlockers'; candidates: { blocker: ObjectId; attackers: ObjectId[] }[] })
   | (DecisionBase & { kind: 'assignCombatDamage'; attacker: ObjectId; blockers: ObjectId[]; amount: number; trample: boolean; lethal: Record<ObjectId, number> })
   | (DecisionBase & { kind: 'discard'; count: number })
@@ -244,7 +254,7 @@ export type Response =
   | { kind: 'cast'; card: ObjectId; targets: Target[]; payment: ObjectId[] }
   | { kind: 'activateMana'; source: ObjectId; mana?: ManaType | undefined }
   | { kind: 'activate'; source: ObjectId; ability: number; targets: Target[]; payment: ObjectId[] }
-  | { kind: 'declareAttackers'; attackers: ObjectId[] }
+  | { kind: 'declareAttackers'; attackers: ObjectId[]; planeswalkerTargets?: Record<ObjectId, ObjectId> | undefined }
   | { kind: 'declareBlockers'; blocks: { blocker: ObjectId; attacker: ObjectId }[] }
   | { kind: 'assignCombatDamage'; assignment: Record<string, number> }
   | { kind: 'discard'; cards: ObjectId[] }

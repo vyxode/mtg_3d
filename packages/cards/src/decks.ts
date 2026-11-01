@@ -19,6 +19,11 @@ export const PRESET_DECKS: Record<string, string[]> = {
     [4, 'Savannah Lions'], [4, 'Youthful Knight'], [4, 'Fencing Ace'], [4, 'Raging Goblin'], [4, 'Highland Game'],
     [4, 'Boggart Brute'], [2, 'Serra Angel'], [4, 'Inspiring Overseer'], [2, 'Flametongue Kavu'], [4, 'Lightning Bolt'],
   ]),
+  'Esper (blanco-azul-negro)': expand([
+    [4, 'Hallowed Fountain'], [4, 'Watery Grave'], [4, 'Godless Shrine'], [5, 'Plains'], [3, 'Island'], [4, 'Swamp'],
+    [4, "Ajani's Pridemate"], [2, 'Isamaru, Hound of Konda'], [4, 'Inspiring Overseer'], [4, 'Vampire Nighthawk'], [3, 'Typhoid Rats'],
+    [3, 'Jace Beleren'], [4, 'Murder'], [3, 'Counterspell'], [4, 'Raise the Alarm'], [3, 'Glorious Anthem'], [2, 'Divination'],
+  ]),
   'Golgari (verde-negro)': expand([
     [13, 'Forest'], [11, 'Swamp'],
     [4, 'Llanowar Elves'], [4, 'Typhoid Rats'], [4, 'Elvish Visionary'], [4, 'Grizzly Bears'], [4, 'Vampire Nighthawk'],

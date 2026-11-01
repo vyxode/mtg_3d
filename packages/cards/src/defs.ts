@@ -99,6 +99,16 @@ export const DEFS: CardDef[] = [
   },
   { name: 'Soldier', status: 'tested', manaCost: null, types: ['Creature'], subtypes: ['Soldier'], power: 1, toughness: 1, token: true },
 
+  {
+    name: 'Jace Beleren', status: 'tested', manaCost: parseManaCost('{1}{U}{U}'), types: ['Planeswalker'],
+    supertypes: ['Legendary'], subtypes: ['Jace'], loyalty: 3,
+    activated: [
+      { text: '+2: Cada jugador roba una carta', cost: { loyalty: 2 }, targets: [], effects: [{ kind: 'drawEach', amount: 1 }] },
+      { text: '−1: El jugador objetivo roba una carta', cost: { loyalty: -1 }, targets: ['player'], effects: [{ kind: 'targetDraws', target: 0, amount: 1 }] },
+      { text: '−10: El jugador objetivo muele veinte cartas', cost: { loyalty: -10 }, targets: ['player'], effects: [{ kind: 'mill', target: 0, amount: 20 }] },
+    ],
+  },
+
   shock('Hallowed Fountain', ['Plains', 'Island'], ['W', 'U']),
   shock('Watery Grave', ['Island', 'Swamp'], ['U', 'B']),
   shock('Blood Crypt', ['Swamp', 'Mountain'], ['B', 'R']),

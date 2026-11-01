@@ -44,6 +44,25 @@ Referencia: Comprehensive Rules del 19 de junio de 2026. Cada regla marcada como
 | 608.2b | Una habilidad con todos sus objetivos ilegales no se resuelve |
 | 115.1 | Contrarrestar hechizo no puede apuntar a habilidades |
 
+## Hecho (D2b) — `d2b.test.ts`, `planeswalkers.test.ts`
+
+| Regla | Qué |
+| --- | --- |
+| 602 | Habilidades activadas con coste de girar y de maná, en la pila; {T} con mareo de invocación prohibido |
+| 604, 613 (7c) | Estáticas "tus criaturas obtienen +1/+1", con y sin "otras" |
+| 111, 704.5d | Fichas; dejan de existir fuera del campo de batalla |
+| 122 | Contadores +1/+1 |
+| 701.8 | Destruir; indestructible lo impide |
+| 603.2 | Disparadas "siempre que ganes vidas" |
+| 106, 605 | Tierras de dos colores; el pago elige el color de cada fuente |
+| 614.12 | Tierras de choque: pagar 2 vidas o entrar giradas |
+| 704.5j | Regla de leyendas, con elección del jugador |
+| 306.5b, 606.3 | Planeswalkers: lealtad inicial, habilidades de lealtad a velocidad de conjuro una vez por turno |
+| 306.8, 704.5i | El daño quita lealtad; con 0 va al cementerio |
+| 508.1b, 506.4c | Atacar a planeswalkers; si el planeswalker se va, el atacante no hace daño |
+| 115.4 | "Cualquier objetivo" incluye planeswalkers |
+| 701.17 | Moler |
+
 ## Atajos conocidos (comentados en el código con `shortcut:`)
 
 - 601.2 se envía como una sola respuesta (objetivos + pago a la vez); se valida en el orden de la regla.
@@ -52,7 +71,9 @@ Referencia: Comprehensive Rules del 19 de junio de 2026. Cada regla marcada como
 - El daño letal para arrollar no cuenta el daño que otras criaturas asignan en el mismo paso.
 - Solo existe la capa 7c.
 - Si en una elección de objetivos solo hay una opción legal, el motor la elige solo.
+- La regla de leyendas se aplica tras las demás acciones basadas en estado, no a la vez, porque necesita una elección.
+- Solo existen contadores +1/+1 y de lealtad.
 
 ## Pendiente (D2b en adelante)
 
-Disparadas al atacar, retardadas y de estado · protección y regeneración · capas 1–7d con dependencias · reemplazo y prevención · copias · cartas de varias caras · planeswalkers · regla de leyendas (704.5j) · auras (704.5m) · costes adicionales y alternativos, X, modos · habilidades activadas que no son de maná · fichas.
+Disparadas al atacar, retardadas y de estado · protección y regeneración · capas 1–7d con dependencias · reemplazo y prevención generales · copias · cartas de varias caras · auras y equipos (704.5m) · costes adicionales y alternativos, X, modos · contadores -1/-1 y otros.
