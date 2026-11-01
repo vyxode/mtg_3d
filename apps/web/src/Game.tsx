@@ -137,14 +137,15 @@ function PlayerBar({ view, p, name }: { view: PlayerView; p: PlayerId; name: str
 
 export function CardView({ o, selected, onClick }: { o: VisibleObject; selected?: boolean; onClick?: () => void }) {
   const [broken, setBroken] = useState(false);
-  const isCreature = CARDS.get(o.card)?.types.includes('Creature') ?? false;
+  const isCreature = o.types.includes('Creature');
   return (
     <button className={`card${o.tapped ? ' tapped' : ''}${selected ? ' selected' : ''}`} onClick={onClick} disabled={!onClick} title={o.card}>
       <span className="card-text">{o.card}</span>
       {!broken && <img src={cardImage(o.card)} alt={o.card} loading="lazy" onError={() => { setBroken(true); }} />}
       {o.zone === 'battlefield' && isCreature && <span className="pt">{o.power}/{o.toughness}{o.damage > 0 ? ` (−${String(o.damage)})` : ''}</span>}
       {o.zone === 'battlefield' && isCreature && o.summoningSick && <span className="sick">mareada</span>}
-      {o.zone === 'battlefield' && CARDS.get(o.card)?.types.includes('Planeswalker') && <span className="pt">◆ {o.loyalty}</span>}
+      {o.zone === 'battlefield' && o.types.includes('Planeswalker') && <span className="pt">◆ {o.loyalty}</span>}
+      {o.otherCounters.quest !== undefined && <span className="sick">misión {o.otherCounters.quest}</span>}
     </button>
   );
 }
@@ -355,7 +356,7 @@ function Priority({ view, d, nameOf, send, onError }: { view: PlayerView; d: Ext
   const finish = (a: Targeted, targets: Target[]) => {
     const pay = payment(a);
     if (!pay) { onError(`No tienes maná suficiente para ${cardOf(subject(a))}.`); return; }
-    void send(a.kind === 'cast' ? { kind: 'cast', card: a.card, targets, payment: pay } : { kind: 'activate', source: a.source, ability: a.ability, targets, payment: pay });
+    void send(a.kind === 'cast' ? { kind: 'cast', card: a.card, targets, payment: pay, warp: a.warp === true } : { kind: 'activate', source: a.source, ability: a.ability, targets, payment: pay });
   };
 
   const choose = (a: LegalAction, mana?: ManaType) => {
@@ -379,7 +380,7 @@ function Priority({ view, d, nameOf, send, onError }: { view: PlayerView; d: Ext
   const usable = usableActions(view, d.legal);
   const label = (a: LegalAction): string[] => {
     if (a.kind === 'playLand') return [`Jugar ${cardOf(a.card)}${view.objects[a.card]?.zone === 'graveyard' ? ' desde el cementerio' : ''}`];
-    if (a.kind === 'cast') return [`Lanzar ${cardOf(a.card)}`];
+    if (a.kind === 'cast') return [`Lanzar ${cardOf(a.card)}${a.warp ? ' por warp' : view.objects[a.card]?.zone === 'exile' ? ' desde el exilio' : ''}`];
     if (a.kind === 'activate') return [`${cardOf(a.source)}: ${CARDS.get(cardOf(a.source))?.activated?.[a.ability]?.text ?? 'activar'}`];
     return [];
   };

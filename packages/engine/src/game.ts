@@ -1,7 +1,7 @@
 import { seedRng, nextInt, shuffle } from './core/rng';
 import { emptyPool, payFromPool, solvePayment } from './mana';
 import type {
-  CardDef, CardRegistry, Effect, GameEvent, GameObject, GameState, GrantedAbility, Keyword, LegalAction, ManaCost, ManaType, ObjectId,
+  CardDef, CardRegistry, CardType, Effect, GameEvent, GameObject, GameState, GrantedAbility, Keyword, PendingTrigger, LegalAction, ManaCost, ManaType, ObjectId,
   PendingDecision, PlayerId, PlayerInput, Resolution, Response, Step, StepResult, Target, TargetSpec, ZoneName,
 } from './types';
 
@@ -42,15 +42,18 @@ export function defOf(reg: CardRegistry, card: string): CardDef {
 export function characteristics(s: GameState, reg: CardRegistry, id: ObjectId): Characteristics {
   const obj = s.objects[id] ?? fail(`Unknown object ${id}`);
   const def = defOf(reg, obj.card);
+  const types: CardType[] = [...def.types];
+  const keywords = [...(def.keywords ?? [])];
   let power = def.power ?? 0;
   let toughness = def.toughness ?? 0;
-  const keywords = [...(def.keywords ?? [])];
-  for (const e of s.effects) {
-    if (e.affected !== id) continue;
-    if (e.layer === '7c') { power += e.power; toughness += e.toughness; } else if (e.grant !== 'cantBeBlocked' && !keywords.includes(e.grant)) keywords.push(e.grant); // layer 6
-  }
-  if (obj.zone === 'battlefield' && isType(def, 'Creature')) {
-    power += obj.counters; toughness += obj.counters;
+  // 613: apply effects layer by layer, each layer in timestamp order (dependencies don't arise with these effects).
+  const mine = s.effects.filter((e) => e.affected === id).sort((a, b) => a.timestamp - b.timestamp);
+  for (const e of mine) if (e.layer === '4' && !types.includes(e.addType)) types.push(e.addType);
+  for (const e of mine) if (e.layer === '6' && e.grant !== 'cantBeBlocked' && !keywords.includes(e.grant)) keywords.push(e.grant);
+  for (const e of mine) if (e.layer === '7b') { power = e.power; toughness = e.toughness; }
+  for (const e of mine) if (e.layer === '7c') { power += e.power; toughness += e.toughness; }
+  if (obj.zone === 'battlefield' && types.includes('Creature')) {
+    power += obj.counters; toughness += obj.counters; // 613.4c
     for (const sid of s.zones.battlefield) { // static anthems (layer 7c), recomputed every time
       const so = s.objects[sid] as GameObject;
       if (so.controller !== obj.controller) continue;
@@ -60,7 +63,7 @@ export function characteristics(s: GameState, reg: CardRegistry, id: ObjectId): 
       }
     }
   }
-  return { name: def.name, types: def.types, power, toughness, keywords };
+  return { name: def.name, types, power, toughness, keywords };
 }
 
 const isType = (c: { types: readonly string[] }, t: string): boolean => c.types.includes(t);
@@ -110,6 +113,7 @@ function moveObject(ctx: Ctx, id: ObjectId, to: ZoneName, opts: { bottom?: boole
   if (fromList) fromList.splice(fromList.indexOf(id), 1);
   else s.stack = s.stack.filter((e) => e.id !== id);
   Reflect.deleteProperty(s.objects, id);
+  s.effects = s.effects.filter((e) => e.affected !== id); // 400.7: effects on the old object don't follow it
 
   const newId = newObject(ctx, obj.card, obj.owner, to);
   const moved = s.objects[newId] as GameObject;
@@ -125,6 +129,10 @@ function moveObject(ctx: Ctx, id: ObjectId, to: ZoneName, opts: { bottom?: boole
   }
   const etb = to === 'battlefield' ? ctx.reg.get(obj.card)?.etb : undefined;
   if (etb && 'tapped' in etb) moved.tapped = true; // 614.1c
+  if (etb && 'tappedUnlessYouControlBasicLand' in etb) {
+    const basic = s.zones.battlefield.some((x) => x !== newId && (s.objects[x] as GameObject).controller === moved.controller && !!ctx.reg.get((s.objects[x] as GameObject).card)?.supertypes?.includes('Basic'));
+    if (!basic) moved.tapped = true;
+  }
   if (etb && 'tappedUnlessPayLife' in etb) { // 614.12: the choice is made as it enters
     if (opts.payLife) setLife(ctx, moved.controller, s.players[moved.controller].life - etb.tappedUnlessPayLife);
     else moved.tapped = true;
@@ -241,9 +249,25 @@ function scanTriggers(ctx: Ctx): void {
     const e = ctx.events[ctx.scanned] as GameEvent;
     const add = (card: string, source: ObjectId, controller: PlayerId, on: string) => {
       (ctx.reg.get(card)?.triggers ?? []).forEach((t, index) => {
-        if (t.on === on) ctx.s.pendingTriggers.push({ id: `t${String(ctx.s.nextId++)}`, card, source, trigger: index, controller, ordered: false });
+        if (t.on === on && conditionHolds(ctx, t.condition, source)) ctx.s.pendingTriggers.push({ id: `t${String(ctx.s.nextId++)}`, card, source, trigger: index, controller, ordered: false });
       });
     };
+    if (e.kind === 'zoneChange' && e.fromZone === 'battlefield' && (e.toZone === 'graveyard' || e.toZone === 'exile')) {
+      for (const d of ctx.s.delayedTriggers.filter((x) => x.on === 'subjectDiesOrIsExiled' && x.subject === e.from)) {
+        ctx.s.delayedTriggers = ctx.s.delayedTriggers.filter((x) => x.id !== d.id); // it triggers only once (603.7c)
+        ctx.s.pendingTriggers.push({ id: d.id, card: d.card, source: e.to, trigger: -1, controller: d.controller, ordered: false, delayed: { effects: d.effects, subject: e.to } });
+      }
+    }
+    if (e.kind === 'targeted' && e.target.kind === 'object') {
+      const o = ctx.s.objects[e.target.id];
+      const creature = o && (o.zone === 'battlefield' ? isType(characteristics(ctx.s, ctx.reg, o.id), 'Creature') : o.zone === 'stack' && isType(defOf(ctx.reg, o.card), 'Creature'));
+      if (o && creature && o.controller !== e.by) {
+        for (const id of ctx.s.zones.battlefield) {
+          const src = ctx.s.objects[id] as GameObject;
+          if (src.controller === o.controller) add(src.card, id, src.controller, 'creatureYouControlTargetedByOpponent');
+        }
+      }
+    }
     if (e.kind === 'zoneChange' && e.toZone === 'battlefield') {
       const entered = ctx.s.objects[e.to];
       if (entered) {
@@ -280,7 +304,7 @@ function placeTriggers(ctx: Ctx): boolean {
       return false;
     }
     for (const t of mine) {
-      const def = defOf(ctx.reg, t.card).triggers?.[t.trigger] ?? fail('Unknown trigger');
+      const def = t.delayed ? { targets: [] } : defOf(ctx.reg, t.card).triggers?.[t.trigger] ?? fail('Unknown trigger');
       const options = def.targets.map((spec) => targetOptions(ctx, spec, p));
       if (options.some((o) => o.length === 0)) { // 603.3d: no legal target, the ability is removed
         s.pendingTriggers = s.pendingTriggers.filter((x) => x.id !== t.id);
@@ -300,8 +324,22 @@ function stackTrigger(ctx: Ctx, triggerId: string, targets: Target[]): void {
   const s = ctx.s;
   const t = s.pendingTriggers.find((x) => x.id === triggerId) ?? fail('Unknown trigger');
   s.pendingTriggers = s.pendingTriggers.filter((x) => x.id !== triggerId);
-  s.stack.push({ kind: 'ability', id: t.id, card: t.card, source: t.source, ability: { kind: 'trigger', index: t.trigger }, controller: t.controller, targets });
+  s.stack.push({ kind: 'ability', id: t.id, card: t.card, source: t.source, ability: { kind: 'trigger', index: t.trigger }, controller: t.controller, targets, ...(t.delayed && { delayed: t.delayed }) });
   ctx.events.push({ kind: 'triggered', card: t.card, controller: t.controller, ability: t.id });
+  announceTargets(ctx, t.controller, targets);
+}
+
+/** 603.4: an intervening "if" clause. */
+function conditionHolds(ctx: Ctx, c: TriggerCondition | undefined, source: ObjectId): boolean {
+  if (!c) return true;
+  return (ctx.s.objects[source]?.kindCounters?.[c.selfCounters] ?? 0) >= c.atLeast;
+}
+
+type TriggerCondition = NonNullable<NonNullable<CardDef['triggers']>[number]['condition']>;
+
+/** "Becomes the target" events for every target of a spell or ability just put on the stack. */
+function announceTargets(ctx: Ctx, by: PlayerId, targets: Target[]): void {
+  for (const target of targets) ctx.events.push({ kind: 'targeted', by, target });
 }
 
 // ---------- Priority ----------
@@ -338,6 +376,8 @@ function targetOptions(ctx: Ctx, spec: TargetSpec, controller: PlayerId): Target
     case 'creature': return creatures;
     case 'creatureYouControl': return creatures.filter((t) => t.kind === 'object' && (s.objects[t.id] as GameObject).controller === controller);
     case 'creaturePowerAtMost2': return creatures.filter((t) => t.kind === 'object' && characteristics(s, ctx.reg, t.id).power <= 2);
+    case 'landYouControl':
+      return s.zones.battlefield.filter((id) => (s.objects[id] as GameObject).controller === controller && isType(characteristics(s, ctx.reg, id), 'Land')).map((id): Target => ({ kind: 'object', id }));
     case 'spell': return s.stack.filter((e) => e.kind === 'spell').map((e): Target => ({ kind: 'object', id: e.id }));
   }
 }
@@ -356,9 +396,8 @@ const isSick = (ctx: Ctx, id: ObjectId): boolean => (ctx.s.objects[id] as GameOb
 function canActivateMana(ctx: Ctx, p: PlayerId, id: ObjectId): boolean {
   const obj = ctx.s.objects[id];
   if (obj?.zone !== 'battlefield' || obj.controller !== p || obj.tapped) return false;
-  const def = defOf(ctx.reg, obj.card);
-  if (!def.manaAbilities?.length) return false;
-  return !(isType(def, 'Creature') && isSick(ctx, id));
+  if (!defOf(ctx.reg, obj.card).manaAbilities?.length) return false;
+  return !(isType(characteristics(ctx.s, ctx.reg, id), 'Creature') && isSick(ctx, id));
 }
 
 function legalActions(ctx: Ctx, p: PlayerId): LegalAction[] {
@@ -374,7 +413,17 @@ function legalActions(ctx: Ctx, p: PlayerId): LegalAction[] {
     }
     if (!isType(def, 'Instant') && !sorcerySpeed) continue;
     const opts = (def.spell?.targets ?? []).map((spec) => targetOptions(ctx, spec, p));
-    if (opts.every((o) => o.length > 0)) out.push({ kind: 'cast', card: id, targetOptions: opts, cost: costToCast(ctx, p, def) });
+    if (!opts.every((o) => o.length > 0)) continue;
+    out.push({ kind: 'cast', card: id, targetOptions: opts, cost: costToCast(ctx, p, def) });
+    if (def.warp) out.push({ kind: 'cast', card: id, targetOptions: opts, cost: def.warp, warp: true });
+  }
+  for (const id of s.zones.exile) {
+    const o = s.objects[id] as GameObject;
+    if (!castableFromExile(ctx, p, o)) continue;
+    const def = defOf(ctx.reg, o.card);
+    if (!isType(def, 'Instant') && !sorcerySpeed) continue;
+    const opts = (def.spell?.targets ?? []).map((spec) => targetOptions(ctx, spec, p));
+    if (opts.every((x) => x.length > 0)) out.push({ kind: 'cast', card: id, targetOptions: opts, cost: costToCast(ctx, p, def) });
   }
   if (canPlayLand && staticsOf(ctx, p, 'playLandsFromGraveyard') > 0) {
     for (const id of s.zones.graveyard[p]) if (isType(defOf(ctx.reg, (s.objects[id] as GameObject).card), 'Land')) out.push({ kind: 'playLand', card: id });
@@ -385,6 +434,7 @@ function legalActions(ctx: Ctx, p: PlayerId): LegalAction[] {
     if (o.controller !== p) continue;
     defOf(ctx.reg, o.card).activated?.forEach((ab, ability) => {
       if (ab.cost.tap && !canTapForCost(ctx, id)) return;
+      if (ab.sorcerySpeed && !sorcerySpeed) return;
       if (ab.cost.loyalty !== undefined && !canPayLoyalty(ctx, p, id, ab.cost.loyalty)) return;
       const opts = ab.targets.map((spec) => targetOptions(ctx, spec, p));
       if (opts.every((x) => x.length > 0)) out.push({ kind: 'activate', source: id, ability, targetOptions: opts });
@@ -392,6 +442,10 @@ function legalActions(ctx: Ctx, p: PlayerId): LegalAction[] {
   }
   return out;
 }
+
+/** 702.185a: a card exiled with warp may be cast by its owner after the turn it was exiled on. */
+const castableFromExile = (ctx: Ctx, p: PlayerId, o: GameObject): boolean =>
+  o.zone === 'exile' && o.owner === p && o.warpExiledTurn !== undefined && o.warpExiledTurn < ctx.s.turn.number;
 
 /** 305.2: one land per turn, plus one for each "additional land" effect. */
 const landsAllowed = (ctx: Ctx, p: PlayerId): number => 1 + staticsOf(ctx, p, 'extraLandDrop');
@@ -431,7 +485,7 @@ function payCost(ctx: Ctx, p: PlayerId, payment: ObjectId[], cost: ManaCost): vo
 /** Can the {T} in a cost be paid? 302.6 applies to creatures. */
 const canTapForCost = (ctx: Ctx, id: ObjectId): boolean => {
   const o = ctx.s.objects[id] as GameObject;
-  return !o.tapped && !(isType(defOf(ctx.reg, o.card), 'Creature') && isSick(ctx, id));
+  return !o.tapped && !(isType(characteristics(ctx.s, ctx.reg, id), 'Creature') && isSick(ctx, id));
 };
 
 /** 606.3: sorcery speed, once per turn per planeswalker, and a minus cost needs enough loyalty. */
@@ -453,6 +507,7 @@ function activate(ctx: Ctx, p: PlayerId, r: Extract<Response, { kind: 'activate'
     if (r.payment.includes(r.source)) fail('The same permanent cannot also tap for mana');
   }
   if (ab.cost.loyalty !== undefined && !canPayLoyalty(ctx, p, r.source, ab.cost.loyalty)) fail('That loyalty ability cannot be activated now');
+  if (ab.sorcerySpeed && !canCastSorcerySpeed(ctx, p)) fail('That ability can only be activated as a sorcery');
   payCost(ctx, p, r.payment, ab.cost.mana ?? { generic: 0 });
   if (ab.cost.tap) tap(ctx, r.source);
   if (ab.cost.loyalty !== undefined) {
@@ -465,6 +520,7 @@ function activate(ctx: Ctx, p: PlayerId, r: Extract<Response, { kind: 'activate'
   const id = `a${String(s.nextId++)}`;
   s.stack.push({ kind: 'ability', id, card: (obj as GameObject).card, source: r.source, ability: { kind: 'activated', index: r.ability }, controller: p, targets: r.targets });
   ctx.events.push({ kind: 'activated', card: (obj as GameObject).card, controller: p, ability: id });
+  announceTargets(ctx, p, r.targets);
   afterAction(ctx, p);
 }
 
@@ -506,10 +562,12 @@ function playLand(ctx: Ctx, p: PlayerId, id: ObjectId, payLife: boolean | undefi
 
 function cast(ctx: Ctx, p: PlayerId, r: Extract<Response, { kind: 'cast' }>): void {
   const s = ctx.s;
-  const obj = s.objects[r.card];
-  if (obj?.zone !== 'hand' || obj.owner !== p) fail('That card is not in your hand');
-  const def = defOf(ctx.reg, (obj as GameObject).card);
+  const obj = s.objects[r.card] ?? fail('Unknown card');
+  const fromExile = castableFromExile(ctx, p, obj);
+  if ((obj.zone !== 'hand' && !fromExile) || obj.owner !== p) fail('You cannot cast that card from where it is');
+  const def = defOf(ctx.reg, obj.card);
   if (def.status === 'unsupported') fail(`${def.name} is not implemented`);
+  if (r.warp && (obj.zone !== 'hand' || !def.warp)) fail('Only a card with warp in your hand can be cast for its warp cost');
   if (isType(def, 'Land')) fail('Lands are played, not cast');
   if (!isType(def, 'Instant') && !canCastSorcerySpeed(ctx, p)) fail(`${def.name} can only be cast at sorcery speed`);
 
@@ -517,11 +575,12 @@ function cast(ctx: Ctx, p: PlayerId, r: Extract<Response, { kind: 'cast' }>): vo
   if (r.targets.length !== specs.length) fail(`Expected ${String(specs.length)} target(s)`);
   specs.forEach((spec, i) => { if (!isLegalTarget(ctx, spec, r.targets[i] as Target, null, p)) fail(`Illegal target #${String(i + 1)}`); });
 
-  payCost(ctx, p, r.payment, costToCast(ctx, p, def));
+  payCost(ctx, p, r.payment, r.warp && def.warp ? def.warp : costToCast(ctx, p, def));
 
   const spell = moveObject(ctx, r.card, 'stack', { controller: p });
-  s.stack.push({ kind: 'spell', id: spell, card: def.name, controller: p, targets: r.targets });
+  s.stack.push({ kind: 'spell', id: spell, card: def.name, controller: p, targets: r.targets, ...(r.warp && { warp: true as const }) });
   ctx.events.push({ kind: 'cast', player: p, spell, targets: r.targets });
+  announceTargets(ctx, p, r.targets);
   afterAction(ctx, p);
 }
 
@@ -533,7 +592,9 @@ function resolveTop(ctx: Ctx): boolean {
 
   if (entry.kind === 'ability') {
     s.stack.pop();
-    const ability = (entry.ability.kind === 'trigger' ? def.triggers?.[entry.ability.index] : def.activated?.[entry.ability.index]) ?? fail('Unknown ability');
+    const ability = entry.delayed ? { targets: [], effects: entry.delayed.effects, condition: undefined }
+      : (entry.ability.kind === 'trigger' ? def.triggers?.[entry.ability.index] : def.activated?.[entry.ability.index]) ?? fail('Unknown ability');
+    if ('condition' in ability && !conditionHolds(ctx, ability.condition, entry.source)) { ctx.events.push({ kind: 'resolved', spell: entry.id }); return true; } // 603.4
     const legal = ability.targets.map((spec, i) => isLegalTarget(ctx, spec, entry.targets[i] as Target, null, entry.controller));
     if (ability.targets.length > 0 && legal.every((l) => !l)) { ctx.events.push({ kind: 'fizzled', spell: entry.id }); return true; } // 608.2b
     s.resolving = { entry, effects: ability.effects, targets: entry.targets, legal, next: 0 };
@@ -541,7 +602,13 @@ function resolveTop(ctx: Ctx): boolean {
   }
 
   if (!def.spell) { // permanent spell
-    moveObject(ctx, entry.id, 'battlefield', { controller: entry.controller });
+    const permanent = moveObject(ctx, entry.id, 'battlefield', { controller: entry.controller });
+    if (entry.warp) { // 702.185a: exile it at the beginning of the next end step
+      s.delayedTriggers.push({
+        id: `d${String(s.nextId++)}`, card: entry.card, controller: entry.controller, subject: permanent, on: 'nextEndStep',
+        createdTurn: s.turn.number, createdDuringEnd: s.turn.step === 'end' || s.turn.step === 'cleanup', effects: [{ kind: 'exileSubjectWarp' }],
+      });
+    }
     ctx.events.push({ kind: 'resolved', spell: entry.id });
     return true;
   }
@@ -612,8 +679,48 @@ function runEffect(ctx: Ctx, effect: Effect, r: Resolution): boolean {
       const id = effect.target === 'self' ? source : objectTarget();
       const o = s.objects[id];
       if (o?.zone !== 'battlefield') break; // the source left: nothing to put counters on
+      if (effect.counter) {
+        o.kindCounters = { ...o.kindCounters, [effect.counter]: (o.kindCounters?.[effect.counter] ?? 0) + effect.amount };
+        break;
+      }
       o.counters += effect.amount;
       ctx.events.push({ kind: 'countersAdded', id, amount: effect.amount });
+      break;
+    }
+    case 'earthbend': {
+      const id = objectTarget();
+      const ts = () => s.nextTimestamp++;
+      s.effects.push(
+        { layer: '4', affected: id, addType: 'Creature', duration: 'permanent', timestamp: ts() },
+        { layer: '6', affected: id, grant: 'Haste', duration: 'permanent', timestamp: ts() },
+        { layer: '7b', affected: id, power: 0, toughness: 0, duration: 'permanent', timestamp: ts() },
+      );
+      (s.objects[id] as GameObject).counters += effect.amount;
+      ctx.events.push({ kind: 'countersAdded', id, amount: effect.amount });
+      s.delayedTriggers.push({
+        id: `d${String(s.nextId++)}`, card: r.entry.card, controller, subject: id, on: 'subjectDiesOrIsExiled',
+        createdTurn: s.turn.number, createdDuringEnd: false, effects: [{ kind: 'returnSubjectTapped' }],
+      });
+      break;
+    }
+    case 'reflexive': {
+      const t = defOf(ctx.reg, r.entry.card).triggers?.[effect.trigger] ?? fail('Unknown reflexive trigger');
+      if (conditionHolds(ctx, t.condition, source)) s.pendingTriggers.push({ id: `t${String(s.nextId++)}`, card: r.entry.card, source, trigger: effect.trigger, controller, ordered: false });
+      break;
+    }
+    case 'returnSubjectTapped': {
+      const subject = r.entry.kind === 'ability' ? r.entry.delayed?.subject : undefined;
+      const o = subject === undefined ? undefined : s.objects[subject];
+      if (o?.zone !== 'graveyard' && o?.zone !== 'exile') break; // it moved again: it can't be found (400.7)
+      const back = moveObject(ctx, o.id, 'battlefield');
+      (s.objects[back] as GameObject).tapped = true;
+      break;
+    }
+    case 'exileSubjectWarp': {
+      const subject = r.entry.kind === 'ability' ? r.entry.delayed?.subject : undefined;
+      if (subject === undefined || s.objects[subject]?.zone !== 'battlefield') break;
+      const exiled = moveObject(ctx, subject, 'exile');
+      (s.objects[exiled] as GameObject).warpExiledTurn = s.turn.number;
       break;
     }
     case 'doubleCounters': {
@@ -626,6 +733,7 @@ function runEffect(ctx: Ctx, effect: Effect, r: Resolution): boolean {
     }
     case 'counter': {
       const target = objectTarget();
+      if (ctx.reg.get((s.objects[target] as GameObject).card)?.cantBeCountered) break; // 101.6
       ctx.events.push({ kind: 'countered', spell: target });
       moveObject(ctx, target, 'graveyard');
       break;
@@ -742,6 +850,14 @@ function enterStep(ctx: Ctx, step: Step): void {
     case 'combatDamage':
       continueCombatDamage(ctx);
       return;
+    case 'end': { // 513.1: "at the beginning of the (next) end step" triggers
+      for (const d of s.delayedTriggers.filter((x) => x.on === 'nextEndStep' && !(x.createdTurn === s.turn.number && x.createdDuringEnd))) {
+        s.delayedTriggers = s.delayedTriggers.filter((x) => x.id !== d.id);
+        s.pendingTriggers.push({ id: d.id, card: d.card, source: d.subject, trigger: -1, controller: d.controller, ordered: false, delayed: { effects: d.effects, subject: d.subject } } satisfies PendingTrigger);
+      }
+      givePriority(ctx, active);
+      return;
+    }
     case 'cleanup': {
       const hand = s.zones.hand[active];
       if (hand.length > MAX_HAND_SIZE) setPending(ctx, { kind: 'discard', player: active, count: hand.length - MAX_HAND_SIZE });
@@ -757,7 +873,7 @@ function enterStep(ctx: Ctx, step: Step): void {
 function cleanupRest(ctx: Ctx): void {
   const s = ctx.s;
   for (const id of s.zones.battlefield) (s.objects[id] as GameObject).damage = 0;
-  s.effects = []; // shortcut: every effect today lasts until end of turn; filter by duration when others exist.
+  s.effects = s.effects.filter((e) => e.duration !== 'endOfTurn'); // 514.2
   s.priorityTo = s.turn.active;
   const acted = runSBA(ctx);
   if (ctx.blocked) return;
@@ -937,7 +1053,7 @@ export function createGame(opts: NewGameOptions, reg: CardRegistry): StepResult 
     objects: {},
     zones: { library: { p1: [], p2: [] }, hand: { p1: [], p2: [] }, graveyard: { p1: [], p2: [] }, battlefield: [], exile: [] },
     stack: [], turn: { number: 0, active: 'p1', step: 'untap', passed: [], landsPlayed: 0 },
-    combat: null, effects: [], pendingTriggers: [], resolving: null, priorityTo: null, pending: null, result: null,
+    combat: null, effects: [], pendingTriggers: [], resolving: null, delayedTriggers: [], priorityTo: null, pending: null, result: null,
   };
   const ctx: Ctx = { s, reg, events: [], scanned: 0 };
   try {

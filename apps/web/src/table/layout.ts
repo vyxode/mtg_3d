@@ -42,16 +42,17 @@ export function spread(n: number, width = ROW_WIDTH, gap = 0.25): number[] {
 }
 
 function badgesOf(o: VisibleObject): string[] {
-  const def = CARDS.get(o.card);
   const out: string[] = [];
-  if (def?.types.includes('Creature')) out.push(`${String(o.power)}/${String(o.toughness)}${o.damage > 0 ? ` −${String(o.damage)}` : ''}`);
-  if (def?.types.includes('Planeswalker')) out.push(`◆ ${String(o.loyalty)}`);
+  if (o.types.includes('Creature')) out.push(`${String(o.power)}/${String(o.toughness)}${o.damage > 0 ? ` −${String(o.damage)}` : ''}`);
+  if (o.types.includes('Planeswalker')) out.push(`◆ ${String(o.loyalty)}`);
   if (o.counters > 0) out.push(`+1/+1 ×${String(o.counters)}`);
-  if (def?.types.includes('Creature') && o.summoningSick) out.push('mareada');
+  if (o.otherCounters.quest) out.push(`misión ×${String(o.otherCounters.quest)}`);
+  if (o.types.includes('Creature') && o.summoningSick && !CARDS.get(o.card)?.keywords?.includes('Haste')) out.push('mareada');
   return out;
 }
 
-const isLand = (o: VisibleObject) => CARDS.get(o.card)?.types.includes('Land') ?? false;
+// An animated land (earthbend) is a creature: it fights in the front row.
+const isLand = (o: VisibleObject) => o.types.includes('Land') && !o.types.includes('Creature');
 
 /** Everything visible on the table from the viewer's seat; `playable` are the cards the viewer can use now. */
 export function layoutTable(view: PlayerView, playable: ReadonlySet<ObjectId> = new Set()): Placement[] {

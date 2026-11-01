@@ -76,7 +76,23 @@ Referencia: Comprehensive Rules del 19 de junio de 2026. Cada regla marcada como
 | 305.2 | Tierras adicionales por turno; jugar tierras desde el cementerio |
 | 702.41 | Afinidad por un subtipo; la acción legal lleva el coste ya reducido |
 
-Cartas: Fabled Passage, Escape Tunnel, Sazh's Chocobo, Mossborn Hydra, Shared Roots, Icetill Explorer, Sapling Nursery (y su ficha Treefolk). Del mazo Mono-Green Landfall del meta faltan Earthbender Ascension y Ba Sing Se (tierra-bending), Esper Origins (flashback, doble cara, saga), Mightform Harmonizer (warp), Meltstrider's Resolve (auras, luchar), Lumbering Worldwagon (vehículos), Surrak (disparada al ser objetivo), Keen-Eyed Curator y Demolition Field.
+Cartas: Fabled Passage, Escape Tunnel, Sazh's Chocobo, Mossborn Hydra, Shared Roots, Icetill Explorer, Sapling Nursery (y su ficha Treefolk). 
+
+## Hecho (D3b) — `d3b.test.ts`
+
+| Regla | Qué |
+| --- | --- |
+| 702.185 | Warp: coste alternativo desde la mano, exilio al principio del siguiente paso final, lanzarla desde el exilio en un turno posterior |
+| 603.7 | Habilidades disparadas retardadas ("al principio del siguiente paso final", "cuando muera o sea exiliada") |
+| 603.12, 603.4 | Disparadas reflejas ("cuando lo hagas") con "si" intercalado, comprobado al dispararse y al resolverse |
+| 613 (capas 4 y 7b) | Añadir tipo (una tierra se vuelve criatura) y fijar fuerza/resistencia base; efectos que duran mientras exista el objeto |
+| — | Tierra-bending (earthbend) con vuelta al campo girada |
+| 122 | Contadores de misión |
+| 602.5d | Habilidades "activa solo como un conjuro" |
+| 101.6 | "Este hechizo no puede ser contrarrestado" |
+| 603.2 | Disparadas "cuando se convierta en objetivo de un hechizo o habilidad de un oponente" |
+
+Cartas: Mightform Harmonizer, Ba Sing Se, Earthbender Ascension, Surrak, Elusive Hunter. El mazo «Landfall verde» tiene ya 51 de las 60 cartas de la lista del meta.
 
 ## Atajos conocidos (comentados en el código con `shortcut:`)
 
@@ -84,11 +100,11 @@ Cartas: Fabled Passage, Escape Tunnel, Sazh's Chocobo, Mossborn Hydra, Shared Ro
 - El maná genérico se paga con incoloro y luego W, U, B, R, G; el jugador no elige qué maná sobra.
 - Una fuente que ya dejó su zona no tiene palabras clave (sin último dato conocido de características).
 - El daño letal para arrollar no cuenta el daño que otras criaturas asignan en el mismo paso.
-- Solo existen la capa 6 (ganar habilidades) y la 7c; todos los efectos duran hasta el final del turno.
+- Existen las capas 4 (añadir tipos), 6 (ganar habilidades), 7b y 7c; dentro de cada capa se aplica por orden de llegada, sin dependencias (613.8).
 - Si en una elección de objetivos solo hay una opción legal, el motor la elige solo.
 - La regla de leyendas se aplica tras las demás acciones basadas en estado, no a la vez, porque necesita una elección.
 - Solo existen contadores +1/+1 y de lealtad.
 
-## Pendiente (D3b en adelante)
+## Pendiente (D3c en adelante)
 
-Warp y lanzar desde el exilio · flashback, cartas de doble cara y sagas · auras, equipos y vehículos (704.5m) · tierra-bending (capa 4) · disparadas al ser objetivo · escudriñar, vigilar · disparadas al atacar, retardadas y de estado · protección y regeneración · capas 1–7d con dependencias · reemplazo y prevención generales · copias · cartas de varias caras · costes adicionales y alternativos, X, modos · contadores -1/-1 y otros.
+Flashback, cartas de doble cara y sagas (Esper Origins) · auras, luchar y equipos (704.5m) · vehículos y tripular · escudriñar, vigilar · disparadas al atacar, retardadas y de estado · protección y regeneración · capas 1–7d con dependencias · reemplazo y prevención generales · copias · cartas de varias caras · costes adicionales y alternativos, X, modos · contadores -1/-1 y otros.

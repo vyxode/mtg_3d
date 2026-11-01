@@ -29,7 +29,12 @@ export type TargetSpec = 'anyTarget' | 'creature' | 'spell' | 'player'
   /** "target creature you control" (from the point of view of the spell's or ability's controller). */
   | 'creatureYouControl'
   /** "target creature with power 2 or less". */
-  | 'creaturePowerAtMost2';
+  | 'creaturePowerAtMost2'
+  /** "target land you control". */
+  | 'landYouControl';
+
+/** Counter kinds other than +1/+1 (kept in `GameObject.counters`) and loyalty. */
+export type CounterKind = 'quest';
 
 /** Abilities an effect can grant until end of turn (layer 6). */
 export type GrantedAbility = Keyword | 'cantBeBlocked';
@@ -45,8 +50,8 @@ export type Effect =
   | { kind: 'counter'; target: number }
   | { kind: 'destroy'; target: number }
   | { kind: 'createToken'; token: string; amount: number }
-  /** +1/+1 counters on a target, or on the ability's source ('self'). */
-  | { kind: 'addCounters'; target: number | 'self'; amount: number }
+  /** +1/+1 counters (or `counter` counters) on a target, or on the ability's source ('self'). */
+  | { kind: 'addCounters'; target: number | 'self'; amount: number; counter?: CounterKind }
   | { kind: 'pump'; power: number; toughness: number; target: number; duration: 'endOfTurn' }
   /** 701.10d: it gets +X/+0 until end of turn, where X is its power as the effect begins. */
   | { kind: 'doublePower'; target: number }
@@ -60,7 +65,18 @@ export type Effect =
    * 701.23: search your library for a basic land card, put it onto the battlefield, then shuffle. Finding nothing is
    * allowed (701.23b). `untapIfLands`: "then if you control N or more lands, untap that land".
    */
-  | { kind: 'searchBasicLand'; tapped: boolean; untapIfLands?: number };
+  | { kind: 'searchBasicLand'; tapped: boolean; untapIfLands?: number }
+  /**
+   * Earthbend N: target land you control becomes a 0/0 creature with haste that's still a land. Put N +1/+1 counters
+   * on it. When it dies or is exiled, return it to the battlefield tapped.
+   */
+  | { kind: 'earthbend'; target: number; amount: number }
+  /** 603.12: "When you do, …": triggers the source's reflexive ability `trigger` (an entry of its `triggers`). */
+  | { kind: 'reflexive'; trigger: number }
+  /** Delayed triggers only: return the watched card to the battlefield tapped, from wherever it went. */
+  | { kind: 'returnSubjectTapped' }
+  /** Delayed triggers only (warp): exile the watched permanent; its owner may cast it from exile on a later turn. */
+  | { kind: 'exileSubjectWarp' };
 
 export interface ManaAbility {
   cost: 'tap';
@@ -76,7 +92,13 @@ export type Keyword =
 /** "When [this] enters" / "When [this] dies" (603.6a, 603.6c with look-back). */
 export interface TriggerDef {
   /** landYouControlEnters = landfall: "whenever a land you control enters". */
-  on: 'selfEntersBattlefield' | 'selfDies' | 'controllerGainsLife' | 'landYouControlEnters';
+  on: 'selfEntersBattlefield' | 'selfDies' | 'controllerGainsLife' | 'landYouControlEnters'
+    /** "Whenever a creature you control or a creature spell you control becomes the target of a spell or ability an opponent controls". */
+    | 'creatureYouControlTargetedByOpponent'
+    /** Only put on the stack by a `reflexive` effect of the same card (603.12). */
+    | 'reflexive';
+  /** Intervening "if" (603.4): checked when it triggers and again as it resolves. */
+  condition?: { selfCounters: CounterKind; atLeast: number };
   targets: TargetSpec[];
   effects: Effect[];
 }
@@ -87,6 +109,8 @@ export interface ActivatedDef {
   text: string;
   /** loyalty: +N adds, -N removes loyalty counters; a loyalty ability is sorcery-speed and once per turn (606.3). */
   cost: { mana?: ManaCost; tap?: boolean; loyalty?: number; sacrifice?: true; exile?: true };
+  /** "Activate only as a sorcery" (602.5d). */
+  sorcerySpeed?: true;
   targets: TargetSpec[];
   effects: Effect[];
 }
@@ -121,7 +145,11 @@ export interface CardDef {
   activated?: ActivatedDef[];
   statics?: StaticDef[];
   /** Replacement effects on entering the battlefield (614.1c, 614.12). */
-  etb?: { tapped: true } | { tappedUnlessPayLife: number };
+  etb?: { tapped: true } | { tappedUnlessPayLife: number } | { tappedUnlessYouControlBasicLand: true };
+  /** Warp (702.185): may be cast from your hand for this cost; then exiled at the next end step and castable from exile later. */
+  warp?: ManaCost;
+  /** "This spell can't be countered" (101.6). */
+  cantBeCountered?: true;
   /** "This creature enters with N +1/+1 counters on it" (614.1c). */
   entersWithCounters?: number;
   /** Affinity for a subtype (702.41): costs {1} less for each permanent with it you control. */
@@ -156,8 +184,12 @@ export interface GameObject {
   summoningSick: boolean;
   /** 704.5h: dealt damage by a source with deathtouch since SBAs were last checked. */
   deathtouchDamage: boolean;
-  /** shortcut: only +1/+1 counters exist; becomes a record of counter kinds when -1/-1 and others arrive. */
+  /** +1/+1 counters. */
   counters: number;
+  /** Other counters by kind (quest…). */
+  kindCounters?: Partial<Record<CounterKind, number>>;
+  /** Warp (702.185a): exiled by its warp ability on this turn; its owner may cast it from exile on any later turn. */
+  warpExiledTurn?: number;
   loyalty: number;
   /** Turn number of its last loyalty activation (606.3). */
   loyaltyTurn: number;
@@ -168,9 +200,9 @@ export type Target = { kind: 'player'; player: PlayerId } | { kind: 'object'; id
 
 export type StackEntry =
   /** A spell: `id` is the card object in the stack zone. */
-  | { kind: 'spell'; id: ObjectId; card: string; controller: PlayerId; targets: Target[] }
+  | { kind: 'spell'; id: ObjectId; card: string; controller: PlayerId; targets: Target[]; warp?: true }
   /** A triggered ability: not an object; `source` may already have left its zone (look-back). */
-  | { kind: 'ability'; id: string; card: string; source: ObjectId; ability: { kind: 'trigger' | 'activated'; index: number }; controller: PlayerId; targets: Target[] };
+  | { kind: 'ability'; id: string; card: string; source: ObjectId; ability: { kind: 'trigger' | 'activated'; index: number }; controller: PlayerId; targets: Target[]; delayed?: { effects: Effect[]; subject: ObjectId } };
 
 /** A triggered ability waiting to be put on the stack the next time a player would receive priority (603.3). */
 export interface PendingTrigger {
@@ -181,11 +213,32 @@ export interface PendingTrigger {
   controller: PlayerId;
   /** Set once its controller has chosen the order of their simultaneous triggers. */
   ordered: boolean;
+  /** Delayed triggers carry their own effects instead of an index into the card's `triggers`. */
+  delayed?: { effects: Effect[]; subject: ObjectId };
 }
 
+/** 'permanent': lasts as long as the affected object exists (a new object after a zone change is not affected, 400.7). */
+export type Duration = 'endOfTurn' | 'permanent';
+
 export type ContinuousEffect =
-  | { layer: '7c'; affected: ObjectId; power: number; toughness: number; duration: 'endOfTurn'; timestamp: number }
-  | { layer: '6'; affected: ObjectId; grant: GrantedAbility; duration: 'endOfTurn'; timestamp: number };
+  | { layer: '7c'; affected: ObjectId; power: number; toughness: number; duration: Duration; timestamp: number }
+  | { layer: '7b'; affected: ObjectId; power: number; toughness: number; duration: Duration; timestamp: number }
+  | { layer: '6'; affected: ObjectId; grant: GrantedAbility; duration: Duration; timestamp: number }
+  | { layer: '4'; affected: ObjectId; addType: CardType; duration: Duration; timestamp: number };
+
+/** A delayed triggered ability (603.7), created by a resolving spell or ability. */
+export interface DelayedTrigger {
+  id: string;
+  card: string;
+  controller: PlayerId;
+  /** The object it refers to ("it", "this creature"). */
+  subject: ObjectId;
+  on: 'subjectDiesOrIsExiled' | 'nextEndStep';
+  /** For nextEndStep: the turn it was created on, and whether that was already during the end step (then it waits a turn). */
+  createdTurn: number;
+  createdDuringEnd: boolean;
+  effects: Effect[];
+}
 
 /** A spell or ability partway through resolving: it can stop for a choice (e.g. which card to find) and continue. */
 export interface Resolution {
@@ -244,6 +297,7 @@ export interface GameState {
   effects: ContinuousEffect[];
   pendingTriggers: PendingTrigger[];
   resolving: Resolution | null;
+  delayedTriggers: DelayedTrigger[];
   /** Who receives priority once pending triggers are on the stack (placing them may need decisions first). */
   priorityTo: PlayerId | null;
   pending: PendingDecision | null;
@@ -255,7 +309,7 @@ export interface GameState {
 export type LegalAction =
   | { kind: 'playLand'; card: ObjectId }
   /** `cost`: what the engine will charge, after reductions such as affinity. */
-  | { kind: 'cast'; card: ObjectId; targetOptions: Target[][]; cost: ManaCost }
+  | { kind: 'cast'; card: ObjectId; targetOptions: Target[][]; cost: ManaCost; warp?: true }
   | { kind: 'activateMana'; source: ObjectId }
   | { kind: 'activate'; source: ObjectId; ability: number; targetOptions: Target[][] };
 
@@ -289,7 +343,7 @@ export type Response =
   | { kind: 'bottomCards'; cards: ObjectId[] }
   | { kind: 'pass' }
   | { kind: 'playLand'; card: ObjectId; payLife?: boolean | undefined }
-  | { kind: 'cast'; card: ObjectId; targets: Target[]; payment: ObjectId[] }
+  | { kind: 'cast'; card: ObjectId; targets: Target[]; payment: ObjectId[]; warp?: boolean | undefined }
   | { kind: 'activateMana'; source: ObjectId; mana?: ManaType | undefined }
   | { kind: 'activate'; source: ObjectId; ability: number; targets: Target[]; payment: ObjectId[] }
   | { kind: 'declareAttackers'; attackers: ObjectId[]; planeswalkerTargets?: Record<ObjectId, ObjectId> | undefined }
@@ -319,6 +373,8 @@ export type GameEvent =
   | { kind: 'tokenCreated'; id: ObjectId; card: string; controller: PlayerId }
   | { kind: 'countersAdded'; id: ObjectId; amount: number }
   | { kind: 'searched'; player: PlayerId; found: ObjectId | null }
+  /** "Becomes the target" (603.2): emitted as a spell or ability is put on the stack with its targets. */
+  | { kind: 'targeted'; by: PlayerId; target: Target }
   | { kind: 'tapped'; id: ObjectId }
   | { kind: 'untapped'; id: ObjectId }
   | { kind: 'manaAdded'; player: PlayerId; mana: ManaType }

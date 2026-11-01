@@ -31,7 +31,7 @@ function randomResponse(s: GameState, rng: RngState): [Response, RngState] {
       if (a.kind === 'playLand') return [{ kind: 'playLand', card: a.card, payLife: pick(2) === 0 }, r];
       const sources = p.legal.flatMap((l) => (l.kind === 'activateMana' ? [l.source] : []));
       if (a.kind === 'activate') return [{ kind: 'activate', source: a.source, ability: a.ability, targets: a.targetOptions.map((o) => o[pick(o.length)] as never), payment: sources.filter((x) => x !== a.source) }, r];
-      return [{ kind: 'cast', card: a.card, targets: a.targetOptions.map((o) => o[pick(o.length)] as never), payment: sources }, r];
+      return [{ kind: 'cast', card: a.card, targets: a.targetOptions.map((o) => o[pick(o.length)] as never), payment: sources, warp: a.warp === true }, r];
     }
   }
 }

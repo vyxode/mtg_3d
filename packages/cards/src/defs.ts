@@ -182,6 +182,35 @@ export const DEFS: CardDef[] = [
       cost: { mana: parseManaCost('{1}{G}'), exile: true }, targets: [], effects: [{ kind: 'grantAll', ability: 'Indestructible', subtypes: ['Treefolk', 'Forest'] }],
     }],
   },
+  // D3b: warp, earthbend, reflexive triggers, "becomes the target" triggers.
+  creature('Mightform Harmonizer', '{2}{G}{G}', ['Insect', 'Druid'], 4, 4, {
+    warp: parseManaCost('{2}{G}'),
+    triggers: [{ on: 'landYouControlEnters', targets: ['creatureYouControl'], effects: [{ kind: 'doublePower', target: 0 }] }],
+  }),
+  {
+    name: 'Ba Sing Se', status: 'tested', manaCost: null, types: ['Land'],
+    etb: { tappedUnlessYouControlBasicLand: true }, manaAbilities: [{ cost: 'tap', produce: ['G'] }],
+    activated: [{
+      text: '{2}{G}, {T}: Tierra-bending 2 (solo como un conjuro)', cost: { mana: parseManaCost('{2}{G}'), tap: true }, sorcerySpeed: true,
+      targets: ['landYouControl'], effects: [{ kind: 'earthbend', target: 0, amount: 2 }],
+    }],
+  },
+  {
+    name: 'Earthbender Ascension', status: 'tested', manaCost: parseManaCost('{2}{G}'), types: ['Enchantment'],
+    triggers: [
+      { on: 'selfEntersBattlefield', targets: ['landYouControl'], effects: [{ kind: 'earthbend', target: 0, amount: 2 }, { kind: 'searchBasicLand', tapped: true }] },
+      { on: 'landYouControlEnters', targets: [], effects: [{ kind: 'addCounters', target: 'self', amount: 1, counter: 'quest' }, { kind: 'reflexive', trigger: 2 }] },
+      {
+        on: 'reflexive', condition: { selfCounters: 'quest', atLeast: 4 }, targets: ['creatureYouControl'],
+        effects: [{ kind: 'addCounters', target: 0, amount: 1 }, { kind: 'grant', ability: 'Trample', target: 0 }],
+      },
+    ],
+  },
+  creature('Surrak, Elusive Hunter', '{2}{G}', ['Human', 'Warrior'], 4, 3, {
+    supertypes: ['Legendary'], keywords: ['Trample'], cantBeCountered: true,
+    triggers: [{ on: 'creatureYouControlTargetedByOpponent', targets: [], effects: [{ kind: 'draw', amount: 1 }] }],
+  }),
+
   // shortcut: token definitions are keyed by name; give them distinct keys when two cards make different "Treefolk" tokens.
   { name: 'Treefolk', status: 'tested', manaCost: null, types: ['Creature'], subtypes: ['Treefolk'], power: 3, toughness: 4, keywords: ['Reach'], token: true },
 ];

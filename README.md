@@ -20,7 +20,8 @@ Proyecto de fans, no oficial y sin ánimo de lucro. Magic: The Gathering y sus i
 | D3a — Cartas del meta | Hecho: aterrizaje, búsqueda de tierras, costes de sacrificar/exiliar, afinidad, tierras extra; 7 cartas de Mono-Green Landfall y el mazo «Landfall verde» ([lo que falta](docs/rules-coverage.md)) |
 | G — Persistencia | Hecho: con `DATABASE_URL` las partidas sobreviven a reinicios (se repiten sus entradas, [ADR 0004](docs/adr/0004-persistencia-por-repeticion.md)); abandono a los 15 min; salas inactivas se borran a las 6 h. Los mazos siguen en el navegador |
 | H — Despliegue | Hecho: imagen Docker, `docker compose --profile app`, guía con tres opciones ([docs/deploy.md](docs/deploy.md)); la CI construye y prueba la imagen. Falta elegir alojamiento (D6) |
-| D3b — Más cartas del meta | Pendiente: warp, flashback y doble cara, sagas, auras, vehículos, tierra-bending… |
+| D3b — Más cartas del meta | Hecho: warp, tierra-bending, disparadas retardadas y reflejas, capas 4 y 7b; «Landfall verde» lleva 51 de las 60 cartas del mazo nº 1 de Standard |
+| D3c | Pendiente: flashback, doble cara y sagas, auras, vehículos… |
 
 ## Jugar ya
 

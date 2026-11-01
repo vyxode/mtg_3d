@@ -1,6 +1,6 @@
 import { characteristics } from './game';
 import type {
-  CardRegistry, CombatState, GameEvent, GameResult, GameState, ManaPool, ObjectId, PendingDecision,
+  CardRegistry, CardType, CombatState, CounterKind, GameEvent, GameResult, GameState, ManaPool, ObjectId, PendingDecision,
   PlayerId, StackEntry, Step, ZoneName,
 } from './types';
 
@@ -18,6 +18,11 @@ export interface VisibleObject {
   toughness: number;
   loyalty: number;
   counters: number;
+  /** Current card types (an earthbent land is also a creature). */
+  types: CardType[];
+  otherCounters: Partial<Record<CounterKind, number>>;
+  /** Exiled with warp: its owner may cast it from exile after this turn. */
+  warpExiledTurn?: number;
 }
 
 export interface PlayerView {
@@ -55,6 +60,7 @@ export function viewFor(s: GameState, reg: CardRegistry, viewer: PlayerId): Play
     objects[o.id] = {
       id: o.id, card: o.card, owner: o.owner, controller: o.controller, zone: o.zone,
       tapped: o.tapped, damage: o.damage, summoningSick: o.summoningSick, power: c.power, toughness: c.toughness, loyalty: o.loyalty, counters: o.counters,
+      types: c.types, otherCounters: { ...o.kindCounters }, ...(o.warpExiledTurn !== undefined && { warpExiledTurn: o.warpExiledTurn }),
     };
   }
   const player = (p: PlayerId) => {

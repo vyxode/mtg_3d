@@ -16,7 +16,7 @@ export const responseSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('bottomCards'), cards: z.array(id).max(60) }),
   z.object({ kind: z.literal('pass') }),
   z.object({ kind: z.literal('playLand'), card: id, payLife: z.boolean().optional() }),
-  z.object({ kind: z.literal('cast'), card: id, targets: z.array(target).max(10), payment: z.array(id).max(60) }),
+  z.object({ kind: z.literal('cast'), card: id, targets: z.array(target).max(10), payment: z.array(id).max(60), warp: z.boolean().optional() }),
   z.object({ kind: z.literal('activateMana'), source: id, mana: z.enum(['W', 'U', 'B', 'R', 'G', 'C']).optional() }),
   z.object({ kind: z.literal('activate'), source: id, ability: z.number().int().min(0).max(20), targets: z.array(target).max(10), payment: z.array(id).max(60) }),
   z.object({ kind: z.literal('declareAttackers'), attackers: z.array(id).max(200), planeswalkerTargets: z.record(id, id).optional() }),
