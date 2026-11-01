@@ -36,3 +36,15 @@ jobs:
         with:
           name: playwright-results
           path: test-results/
+
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: mkdir -p data && chmod 777 data
+      - run: docker compose -f infra/docker-compose.yml --env-file .env.example --profile app up -d --build --wait
+      - run: curl -fsS http://localhost:3001/api/status
+      - run: curl -fsS http://localhost:3001/ | grep -q 'id="root"'
+      - run: docker compose -f infra/docker-compose.yml --env-file .env.example logs app | grep -q 'Database connected'
+      - if: failure()
+        run: docker compose -f infra/docker-compose.yml --env-file .env.example logs

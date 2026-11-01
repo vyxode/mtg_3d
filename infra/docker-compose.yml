@@ -16,5 +16,22 @@ services:
       timeout: 3s
       retries: 10
 
+  # The whole app (server + web). Start it with: docker compose -f infra/docker-compose.yml --env-file .env --profile app up -d --build
+  app:
+    profiles: ["app"]
+    build:
+      context: ..
+      dockerfile: infra/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+    ports:
+      - "${APP_PORT:-3001}:3001"
+    volumes:
+      - ../data:/app/data # card catalog from `pnpm cards:sync`
+
 volumes:
   pgdata:

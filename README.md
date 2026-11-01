@@ -19,7 +19,8 @@ Proyecto de fans, no oficial y sin ánimo de lucro. Magic: The Gathering y sus i
 | F — Mesa 3D | Hecho: React Three Fiber, animación de cambios de zona, combate visible, cartas usables resaltadas, vista previa al pasar el ratón, cámaras jugador/cenital, respaldo 2D ([ADR 0003](docs/adr/0003-mesa-3d.md)) |
 | D3a — Cartas del meta | Hecho: aterrizaje, búsqueda de tierras, costes de sacrificar/exiliar, afinidad, tierras extra; 7 cartas de Mono-Green Landfall y el mazo «Landfall verde» ([lo que falta](docs/rules-coverage.md)) |
 | G — Persistencia | Hecho: con `DATABASE_URL` las partidas sobreviven a reinicios (se repiten sus entradas, [ADR 0004](docs/adr/0004-persistencia-por-repeticion.md)); abandono a los 15 min; salas inactivas se borran a las 6 h. Los mazos siguen en el navegador |
-| D3b, H | Pendiente |
+| H — Despliegue | Hecho: imagen Docker, `docker compose --profile app`, guía con tres opciones ([docs/deploy.md](docs/deploy.md)); la CI construye y prueba la imagen. Falta elegir alojamiento (D6) |
+| D3b — Más cartas del meta | Pendiente: warp, flashback y doble cara, sagas, auras, vehículos, tierra-bending… |
 
 ## Jugar ya
 
@@ -36,7 +37,7 @@ pnpm cards:sync # opcional: descarga el catálogo completo de Scryfall (necesita
 2. Pasa el código de 6 letras a tu amigo; él entra en la misma dirección, escribe el código y pulsa **Unirse**.
 3. Cada uno elige un mazo predefinido o uno suyo de «Mis mazos» (solo con cartas que el motor ya implementa).
 
-Para jugar desde otro ordenador, tu amigo necesita llegar a tu puerto 3001: misma red local (usa tu IP en vez de `localhost`) o un túnel como Cloudflare Tunnel. El despliegue definitivo es la fase H.
+Para jugar desde otro ordenador, tu amigo necesita llegar a tu puerto 3001: misma red local (usa tu IP en vez de `localhost`) o un túnel como Cloudflare Tunnel. Para un servidor permanente, mira [docs/deploy.md](docs/deploy.md).
 
 El servidor pasa la prioridad por ti cuando no puedes hacer nada útil; marca **Control total** para recibirla en todos los pasos.
 
