@@ -30,12 +30,25 @@ export type TargetSpec = 'anyTarget' | 'creature' | 'spell';
 export type Effect =
   | { kind: 'damage'; amount: number; target: number }
   | { kind: 'draw'; amount: number }
+  | { kind: 'gainLife'; amount: number }
   | { kind: 'counter'; target: number }
   | { kind: 'pump'; power: number; toughness: number; target: number; duration: 'endOfTurn' };
 
 export interface ManaAbility {
   cost: 'tap';
   produce: ManaType;
+}
+
+/** Keyword abilities implemented by the engine (rule 702). */
+export type Keyword =
+  | 'Flying' | 'Reach' | 'Vigilance' | 'Haste' | 'Defender' | 'Menace'
+  | 'First strike' | 'Double strike' | 'Deathtouch' | 'Trample' | 'Lifelink' | 'Indestructible';
+
+/** "When [this] enters" / "When [this] dies" (603.6a, 603.6c with look-back). */
+export interface TriggerDef {
+  on: 'selfEntersBattlefield' | 'selfDies';
+  targets: TargetSpec[];
+  effects: Effect[];
 }
 
 /** 'tested' = has its own scenario test; only tested and implemented cards are playable in strict mode. */
@@ -53,6 +66,8 @@ export interface CardDef {
   /** Instants and sorceries: targets and effects of the spell ability. */
   spell?: { targets: TargetSpec[]; effects: Effect[] };
   manaAbilities?: ManaAbility[];
+  keywords?: Keyword[];
+  triggers?: TriggerDef[];
 }
 
 export type CardRegistry = ReadonlyMap<string, CardDef>;
@@ -79,16 +94,28 @@ export interface GameObject {
   damage: number;
   /** Rule 302.6: true until its controller has controlled it continuously since their most recent turn began. */
   summoningSick: boolean;
+  /** 704.5h: dealt damage by a source with deathtouch since SBAs were last checked. */
+  deathtouchDamage: boolean;
   timestamp: number;
 }
 
 export type Target = { kind: 'player'; player: PlayerId } | { kind: 'object'; id: ObjectId };
 
-export interface StackEntry {
-  /** The spell object (a card in the stack zone). */
-  id: ObjectId;
+export type StackEntry =
+  /** A spell: `id` is the card object in the stack zone. */
+  | { kind: 'spell'; id: ObjectId; card: string; controller: PlayerId; targets: Target[] }
+  /** A triggered ability: not an object; `source` may already have left its zone (look-back). */
+  | { kind: 'ability'; id: string; card: string; source: ObjectId; trigger: number; controller: PlayerId; targets: Target[] };
+
+/** A triggered ability waiting to be put on the stack the next time a player would receive priority (603.3). */
+export interface PendingTrigger {
+  id: string;
+  card: string;
+  source: ObjectId;
+  trigger: number;
   controller: PlayerId;
-  targets: Target[];
+  /** Set once its controller has chosen the order of their simultaneous triggers. */
+  ordered: boolean;
 }
 
 export interface ContinuousEffect {
@@ -103,8 +130,12 @@ export interface ContinuousEffect {
 export interface CombatState {
   attackers: { id: ObjectId; defending: PlayerId }[];
   blocks: { blocker: ObjectId; attacker: ObjectId }[];
-  /** Damage division chosen by the attacking player for attackers blocked by several creatures. */
-  assignments: Record<ObjectId, Record<ObjectId, number>>;
+  /** Damage division chosen by the attacking player; the key 'player' is damage trampled over to the defender. */
+  assignments: Record<ObjectId, Record<string, number>>;
+  /** 510.4: 'first' while only first and double strikers deal damage, then 'regular'. */
+  damageStep: 'first' | 'regular' | null;
+  /** Creatures that had first or double strike when the first combat damage step began. */
+  firstStrikers: ObjectId[];
 }
 
 export interface TurnState {
@@ -140,6 +171,9 @@ export interface GameState {
   turn: TurnState;
   combat: CombatState | null;
   effects: ContinuousEffect[];
+  pendingTriggers: PendingTrigger[];
+  /** Who receives priority once pending triggers are on the stack (placing them may need decisions first). */
+  priorityTo: PlayerId | null;
   pending: PendingDecision | null;
   result: GameResult | null;
 }
@@ -160,8 +194,12 @@ export type PendingDecision =
   | (DecisionBase & { kind: 'priority'; legal: LegalAction[] })
   | (DecisionBase & { kind: 'declareAttackers'; candidates: ObjectId[] })
   | (DecisionBase & { kind: 'declareBlockers'; candidates: { blocker: ObjectId; attackers: ObjectId[] }[] })
-  | (DecisionBase & { kind: 'assignCombatDamage'; attacker: ObjectId; blockers: ObjectId[]; amount: number })
-  | (DecisionBase & { kind: 'discard'; count: number });
+  | (DecisionBase & { kind: 'assignCombatDamage'; attacker: ObjectId; blockers: ObjectId[]; amount: number; trample: boolean; lethal: Record<ObjectId, number> })
+  | (DecisionBase & { kind: 'discard'; count: number })
+  /** 603.3b: order your simultaneous triggers; `order` in the response is the order they will resolve. */
+  | (DecisionBase & { kind: 'orderTriggers'; triggers: { id: string; card: string }[] })
+  /** 603.3d: choose targets as the trigger is put on the stack. */
+  | (DecisionBase & { kind: 'chooseTargets'; trigger: string; card: string; targetOptions: Target[][] });
 
 export type Response =
   | { kind: 'chooseStartingPlayer'; first: PlayerId }
@@ -174,8 +212,10 @@ export type Response =
   | { kind: 'activateMana'; source: ObjectId }
   | { kind: 'declareAttackers'; attackers: ObjectId[] }
   | { kind: 'declareBlockers'; blocks: { blocker: ObjectId; attacker: ObjectId }[] }
-  | { kind: 'assignCombatDamage'; assignment: Record<ObjectId, number> }
-  | { kind: 'discard'; cards: ObjectId[] };
+  | { kind: 'assignCombatDamage'; assignment: Record<string, number> }
+  | { kind: 'discard'; cards: ObjectId[] }
+  | { kind: 'orderTriggers'; order: string[] }
+  | { kind: 'chooseTargets'; targets: Target[] };
 
 /** What a client sends: its answer to the decision with id `decisionId`, or a concession at any time. */
 export type PlayerInput =
@@ -189,7 +229,8 @@ export type GameEvent =
   | { kind: 'stepStarted'; step: Step }
   | { kind: 'shuffled'; player: PlayerId }
   | { kind: 'drew'; player: PlayerId; card: ObjectId }
-  | { kind: 'zoneChange'; from: ObjectId; to: ObjectId; card: string; fromZone: ZoneName; toZone: ZoneName; owner: PlayerId }
+  | { kind: 'zoneChange'; from: ObjectId; to: ObjectId; card: string; fromZone: ZoneName; toZone: ZoneName; owner: PlayerId; lastController: PlayerId }
+  | { kind: 'triggered'; card: string; controller: PlayerId; ability: string }
   | { kind: 'tapped'; id: ObjectId }
   | { kind: 'untapped'; id: ObjectId }
   | { kind: 'manaAdded'; player: PlayerId; mana: ManaType }

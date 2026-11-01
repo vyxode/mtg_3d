@@ -19,6 +19,8 @@ function randomResponse(s: GameState, rng: RngState): [Response, RngState] {
       return [{ kind: 'declareBlockers', blocks }, r];
     }
     case 'assignCombatDamage': return [{ kind: 'assignCombatDamage', assignment: { [p.blockers[0] as ObjectId]: p.amount } }, r];
+    case 'orderTriggers': return [{ kind: 'orderTriggers', order: p.triggers.map((t) => t.id) }, r];
+    case 'chooseTargets': return [{ kind: 'chooseTargets', targets: p.targetOptions.map((o) => o[pick(o.length)] as never) }, r];
     case 'priority': {
       if (p.legal.length === 0 || pick(10) < 4) return [{ kind: 'pass' }, r];
       const a = p.legal[pick(p.legal.length)];
@@ -80,8 +82,10 @@ function playRandomGame(seed: number, maxInputs = 3000): { state: GameState; inp
     [response, rng] = randomResponse(state, rng);
     let input: PlayerInput = { player: p.player, decisionId: p.id, response };
     let r = step(state, input, CARDS);
-    if (!r.ok && p.kind === 'priority') { // e.g. could not pay: pass instead
-      input = { player: p.player, decisionId: p.id, response: { kind: 'pass' } };
+    // A random choice may be illegal (could not pay, a lone blocker on a menace creature): fall back to a safe answer.
+    const fallback: Response | null = p.kind === 'priority' ? { kind: 'pass' } : p.kind === 'declareBlockers' ? { kind: 'declareBlockers', blocks: [] } : null;
+    if (!r.ok && fallback) {
+      input = { player: p.player, decisionId: p.id, response: fallback };
       r = step(state, input, CARDS);
     }
     if (!r.ok) throw new Error(`Seed ${String(seed)}: rejected ${response.kind}: ${r.error}`);

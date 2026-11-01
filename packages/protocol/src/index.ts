@@ -22,6 +22,8 @@ export const responseSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('declareBlockers'), blocks: z.array(z.object({ blocker: id, attacker: id })).max(200) }),
   z.object({ kind: z.literal('assignCombatDamage'), assignment: z.record(id, z.number().int().min(0).max(1000)) }),
   z.object({ kind: z.literal('discard'), cards: z.array(id).max(60) }),
+  z.object({ kind: z.literal('orderTriggers'), order: z.array(id).max(100) }),
+  z.object({ kind: z.literal('chooseTargets'), targets: z.array(target).max(10) }),
 ]) satisfies z.ZodType<Response>;
 
 const name = z.string().trim().min(1).max(24);

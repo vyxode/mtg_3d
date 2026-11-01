@@ -11,10 +11,11 @@ Proyecto de fans, no oficial y sin ánimo de lucro. Magic: The Gathering y sus i
 | Fase | Estado |
 | --- | --- |
 | A — Base del proyecto | Hecho |
-| D1 — Núcleo del motor | Hecho: turnos, prioridad, pila, combate básico, acciones basadas en estado, mulligan; 21 cartas |
+| D1 — Núcleo del motor | Hecho: turnos, prioridad, pila, combate, acciones basadas en estado, mulligan |
 | E1 — Esqueleto jugable | Hecho: salas con código, servidor autoritativo, proyección por jugador, reconexión, auto-pase, interfaz 2D de depuración |
+| D2a — Palabras clave y disparadas | Hecho: 12 palabras clave de combate, disparadas al entrar y al morir con APNAP; 37 cartas, 4 mazos predefinidos |
 | B — Biblioteca (Scryfall) | Imágenes por nombre; la importación completa a PostgreSQL queda pendiente |
-| D2, C, F, D3, G, H | Pendiente |
+| D2b, C, F, D3, G, H | Pendiente |
 
 ## Jugar ya (interfaz 2D de depuración)
 

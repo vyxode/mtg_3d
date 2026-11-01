@@ -14,7 +14,7 @@ const STEP_NAMES: Record<Step, string> = {
 const DECISION_NAMES: Record<PendingDecision['kind'], string> = {
   chooseStartingPlayer: 'elegir quién empieza', mulligan: 'decidir el mulligan', bottomCards: 'poner cartas al fondo',
   priority: 'actuar', declareAttackers: 'declarar atacantes', declareBlockers: 'declarar bloqueadores',
-  assignCombatDamage: 'repartir daño', discard: 'descartar',
+  assignCombatDamage: 'repartir daño', discard: 'descartar', orderTriggers: 'ordenar sus habilidades', chooseTargets: 'elegir objetivos',
 };
 
 interface Props { room: RoomState; update: GameUpdate; onError: (e: string | null) => void }
@@ -67,7 +67,7 @@ export function Game({ room, update, onError }: Props) {
           {view.stack.length === 0 && <p className="muted">Vacía</p>}
           {[...view.stack].reverse().map((e) => (
             <div key={e.id} className="stack-item">
-              <b>{view.objects[e.id]?.card}</b> ({nameOf(e.controller)})
+              <b>{e.card}</b>{e.kind === 'ability' ? ' — habilidad' : ''} ({nameOf(e.controller)})
               {e.targets.length > 0 && <> → {e.targets.map((t) => targetLabel(t, view, nameOf)).join(', ')}</>}
             </div>
           ))}
@@ -193,7 +193,45 @@ function MyDecision({ view, d, nameOf, send, onError }: { view: PlayerView; d: P
       return <DamageSplit view={view} d={d} send={send} />;
     case 'priority':
       return <Priority view={view} d={d} nameOf={nameOf} send={send} onError={onError} />;
+    case 'orderTriggers':
+      return <OrderTriggers d={d} send={send} />;
+    case 'chooseTargets':
+      return (<>
+        <h3>{d.card}: elige objetivo</h3>
+        <TargetPicker options={d.targetOptions} view={view} nameOf={nameOf} onDone={(targets) => void send({ kind: 'chooseTargets', targets })} />
+      </>);
   }
+}
+
+/** Picks one target per slot, then calls onDone with all of them. */
+function TargetPicker({ options, view, nameOf, onDone, onCancel }: { options: Target[][]; view: PlayerView; nameOf: (p: PlayerId) => string; onDone: (t: Target[]) => void; onCancel?: () => void }) {
+  const [chosen, setChosen] = useState<Target[]>([]);
+  const slot = options[chosen.length] ?? [];
+  return (<>
+    {options.length > 1 && <p className="muted">Objetivo {chosen.length + 1} de {options.length}</p>}
+    {slot.map((t) => (
+      <button key={JSON.stringify(t)} onClick={() => {
+        const next = [...chosen, t];
+        if (next.length === options.length) onDone(next); else setChosen(next);
+      }}>{targetLabel(t, view, nameOf)}</button>
+    ))}
+    {onCancel && <button className="link" onClick={onCancel}>Cancelar</button>}
+  </>);
+}
+
+function OrderTriggers({ d, send }: { d: Extract<PendingDecision, { kind: 'orderTriggers' }>; send: (r: Response) => Promise<void> }) {
+  const [order, setOrder] = useState<string[]>([]);
+  return (<>
+    <h3>Ordena tus habilidades disparadas</h3>
+    <p className="muted">Pulsa en el orden en que quieres que se resuelvan (la primera se resuelve antes).</p>
+    {d.triggers.map((t) => (
+      <button key={t.id} disabled={order.includes(t.id)} onClick={() => { setOrder([...order, t.id]); }}>
+        {order.includes(t.id) ? `${String(order.indexOf(t.id) + 1)}. ` : ''}{t.card}
+      </button>
+    ))}
+    <button className="primary" disabled={order.length !== d.triggers.length} onClick={() => void send({ kind: 'orderTriggers', order })}>Confirmar</button>
+    <button className="link" onClick={() => { setOrder([]); }}>Reiniciar</button>
+  </>);
 }
 
 function Blockers({ view, d, send }: { view: PlayerView; d: Extract<PendingDecision, { kind: 'declareBlockers' }>; send: (r: Response) => Promise<void> }) {
@@ -214,13 +252,23 @@ function Blockers({ view, d, send }: { view: PlayerView; d: Extract<PendingDecis
 }
 
 function DamageSplit({ view, d, send }: { view: PlayerView; d: Extract<PendingDecision, { kind: 'assignCombatDamage' }>; send: (r: Response) => Promise<void> }) {
-  const [split, setSplit] = useState<Record<ObjectId, number>>(() => Object.fromEntries(d.blockers.map((b, i) => [b, i === 0 ? d.amount : 0])));
+  // Default: lethal to each blocker in order, the rest to the defending player when trampling (or to the first blocker).
+  const [split, setSplit] = useState<Record<string, number>>(() => {
+    const out: Record<string, number> = {};
+    let left = d.amount;
+    for (const b of d.blockers) { const n = Math.min(left, d.lethal[b] ?? 0); out[b] = n; left -= n; }
+    if (d.trample) out.player = left;
+    else if (d.blockers[0]) out[d.blockers[0]] = (out[d.blockers[0]] ?? 0) + left;
+    return out;
+  });
   const total = Object.values(split).reduce((a, b) => a + b, 0);
+  const keys = [...d.blockers, ...(d.trample ? ['player'] : [])];
   return (<>
     <h3>Reparte {d.amount} de daño de {view.objects[d.attacker]?.card}</h3>
-    {d.blockers.map((b) => (
-      <label key={b} className="row">{view.objects[b]?.card}
-        <input type="number" min={0} max={d.amount} value={split[b] ?? 0} onChange={(e) => { setSplit({ ...split, [b]: Math.max(0, Math.floor(Number(e.target.value))) }); }} />
+    {d.trample && <p className="muted">Arrollar: asigna daño letal a cada bloqueador antes de pasar el resto al jugador.</p>}
+    {keys.map((k) => (
+      <label key={k} className="row">{k === 'player' ? 'Jugador defensor' : `${view.objects[k]?.card ?? k} (letal: ${String(d.lethal[k] ?? 0)})`}
+        <input type="number" min={0} max={d.amount} value={split[k] ?? 0} onChange={(e) => { setSplit({ ...split, [k]: Math.max(0, Math.floor(Number(e.target.value))) }); }} />
       </label>
     ))}
     <button disabled={total !== d.amount} onClick={() => void send({ kind: 'assignCombatDamage', assignment: split })}>Confirmar ({total}/{d.amount})</button>
@@ -228,7 +276,7 @@ function DamageSplit({ view, d, send }: { view: PlayerView; d: Extract<PendingDe
 }
 
 function Priority({ view, d, nameOf, send, onError }: { view: PlayerView; d: Extract<PendingDecision, { kind: 'priority' }>; nameOf: (p: PlayerId) => string; send: (r: Response) => Promise<void>; onError: (e: string | null) => void }) {
-  const [casting, setCasting] = useState<{ action: Extract<LegalAction, { kind: 'cast' }>; targets: Target[] } | null>(null);
+  const [casting, setCasting] = useState<Extract<LegalAction, { kind: 'cast' }> | null>(null);
   const sources = useMemo(() => d.legal.flatMap((a) => (a.kind === 'activateMana' ? [a.source] : [])), [d.legal]);
   const affordable = (a: LegalAction) => a.kind !== 'cast' || autopay(view, CARDS, sources, CARDS.get(view.objects[a.card]?.card ?? '')?.manaCost ?? null) !== null;
   const actionsFor = (id: ObjectId) => d.legal.filter((a) => (('card' in a && a.card === id) || ('source' in a && a.source === id)) && affordable(a));
@@ -244,22 +292,14 @@ function Priority({ view, d, nameOf, send, onError }: { view: PlayerView; d: Ext
     if (a.kind === 'playLand') void send({ kind: 'playLand', card: a.card });
     else if (a.kind === 'activateMana') void send({ kind: 'activateMana', source: a.source });
     else if (a.targetOptions.length === 0) finishCast(a, []);
-    else setCasting({ action: a, targets: [] });
+    else setCasting(a);
   };
 
   if (casting) {
-    const slot = casting.targets.length;
-    const options = casting.action.targetOptions[slot] ?? [];
     return (<>
-      <h3>{view.objects[casting.action.card]?.card}: elige objetivo {slot + 1}</h3>
-      {options.map((t) => (
-        <button key={JSON.stringify(t)} onClick={() => {
-          const targets = [...casting.targets, t];
-          if (targets.length === casting.action.targetOptions.length) { setCasting(null); finishCast(casting.action, targets); }
-          else setCasting({ ...casting, targets });
-        }}>{targetLabel(t, view, nameOf)}</button>
-      ))}
-      <button className="link" onClick={() => { setCasting(null); }}>Cancelar</button>
+      <h3>{view.objects[casting.card]?.card}: elige objetivo</h3>
+      <TargetPicker options={casting.targetOptions} view={view} nameOf={nameOf}
+        onDone={(targets) => { setCasting(null); finishCast(casting, targets); }} onCancel={() => { setCasting(null); }} />
     </>);
   }
 
@@ -300,6 +340,7 @@ function describe(e: GameEvent, names: Map<ObjectId, string>, nameOf: (p: Player
     case 'attackersDeclared': return e.attackers.length ? `Atacan: ${e.attackers.map(n).join(', ')}.` : null;
     case 'blockersDeclared': return e.blocks.length ? `Bloqueos: ${e.blocks.map((b) => `${n(b.blocker)} → ${n(b.attacker)}`).join(', ')}.` : null;
     case 'mulligan': return `${nameOf(e.player)} hace mulligan (${String(e.count)}).`;
+    case 'triggered': return `Se dispara la habilidad de ${e.card} (${nameOf(e.controller)}).`;
     case 'playerLost': return `${nameOf(e.player)} pierde (${e.reason === 'conceded' ? 'concede' : e.reason === 'life' ? 'sin vidas' : 'sin cartas'}).`;
     default: return null;
   }

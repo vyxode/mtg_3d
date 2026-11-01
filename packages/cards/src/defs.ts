@@ -11,6 +11,10 @@ const vanilla = (name: string, cost: string, subtypes: string[], power: number, 
   name, status: 'tested', manaCost: parseManaCost(cost), types: ['Creature'], subtypes, power, toughness,
 });
 
+const creature = (name: string, cost: string, subtypes: string[], power: number, toughness: number, extra: Partial<CardDef>): CardDef => ({
+  ...vanilla(name, cost, subtypes, power, toughness), ...extra,
+});
+
 /** Every card the engine can play. A card missing here is shown in the library but is not playable. */
 export const DEFS: CardDef[] = [
   basic('Plains', 'Plains', 'W'),
@@ -34,6 +38,35 @@ export const DEFS: CardDef[] = [
     ...vanilla('Llanowar Elves', '{G}', ['Elf', 'Druid'], 1, 1),
     manaAbilities: [{ cost: 'tap', produce: 'G' }],
   },
+
+  // Keyword abilities (702)
+  creature('Wind Drake', '{2}{U}', ['Drake'], 2, 2, { keywords: ['Flying'] }),
+  creature('Giant Spider', '{3}{G}', ['Spider'], 2, 4, { keywords: ['Reach'] }),
+  creature('Serra Angel', '{3}{W}{W}', ['Angel'], 4, 4, { keywords: ['Flying', 'Vigilance'] }),
+  creature('Raging Goblin', '{R}', ['Goblin', 'Berserker'], 1, 1, { keywords: ['Haste'] }),
+  creature('Wall of Stone', '{1}{R}{R}', ['Wall'], 0, 8, { keywords: ['Defender'] }),
+  creature('Boggart Brute', '{2}{R}', ['Goblin', 'Warrior'], 3, 2, { keywords: ['Menace'] }),
+  creature('Youthful Knight', '{1}{W}', ['Human', 'Knight'], 2, 1, { keywords: ['First strike'] }),
+  creature('Fencing Ace', '{1}{W}', ['Human', 'Soldier'], 1, 1, { keywords: ['Double strike'] }),
+  creature('Typhoid Rats', '{B}', ['Rat'], 1, 1, { keywords: ['Deathtouch'] }),
+  creature('Colossal Dreadmaw', '{4}{G}{G}', ['Dinosaur'], 6, 6, { keywords: ['Trample'] }),
+  creature('Vampire Nighthawk', '{1}{B}{B}', ['Vampire', 'Shaman'], 2, 3, { keywords: ['Flying', 'Deathtouch', 'Lifelink'] }),
+  creature('Darksteel Myr', '{3}', ['Myr'], 0, 1, { types: ['Artifact', 'Creature'], keywords: ['Indestructible'] }),
+
+  // Triggered abilities (603)
+  creature('Elvish Visionary', '{1}{G}', ['Elf', 'Shaman'], 1, 1, {
+    triggers: [{ on: 'selfEntersBattlefield', targets: [], effects: [{ kind: 'draw', amount: 1 }] }],
+  }),
+  creature('Highland Game', '{1}{R}', ['Elk'], 2, 1, {
+    triggers: [{ on: 'selfDies', targets: [], effects: [{ kind: 'gainLife', amount: 2 }] }],
+  }),
+  creature('Flametongue Kavu', '{3}{R}', ['Kavu'], 4, 2, {
+    triggers: [{ on: 'selfEntersBattlefield', targets: ['creature'], effects: [{ kind: 'damage', amount: 4, target: 0 }] }],
+  }),
+  creature('Inspiring Overseer', '{2}{W}', ['Angel', 'Cleric'], 2, 1, {
+    keywords: ['Flying'],
+    triggers: [{ on: 'selfEntersBattlefield', targets: [], effects: [{ kind: 'gainLife', amount: 1 }, { kind: 'draw', amount: 1 }] }],
+  }),
 
   {
     name: 'Lightning Bolt', status: 'tested', manaCost: parseManaCost('{R}'), types: ['Instant'],

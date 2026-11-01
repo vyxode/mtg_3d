@@ -14,6 +14,16 @@ export const PRESET_DECKS: Record<string, string[]> = {
     [4, 'Merfolk of the Pearl Trident'], [4, 'Coral Merfolk'], [4, 'Walking Corpse'], [4, 'Scathe Zombies'],
     [4, 'Gray Ogre'], [2, 'Hill Giant'], [4, 'Counterspell'], [2, 'Divination'], [4, 'Shock'], [4, 'Lightning Bolt'],
   ]),
+  'Boros veloz (blanco-rojo)': expand([
+    [12, 'Plains'], [12, 'Mountain'],
+    [4, 'Savannah Lions'], [4, 'Youthful Knight'], [4, 'Fencing Ace'], [4, 'Raging Goblin'], [4, 'Highland Game'],
+    [4, 'Boggart Brute'], [2, 'Serra Angel'], [4, 'Inspiring Overseer'], [2, 'Flametongue Kavu'], [4, 'Lightning Bolt'],
+  ]),
+  'Golgari (verde-negro)': expand([
+    [13, 'Forest'], [11, 'Swamp'],
+    [4, 'Llanowar Elves'], [4, 'Typhoid Rats'], [4, 'Elvish Visionary'], [4, 'Grizzly Bears'], [4, 'Vampire Nighthawk'],
+    [4, 'Giant Spider'], [4, 'Colossal Dreadmaw'], [4, 'Walking Corpse'], [4, 'Giant Growth'],
+  ]),
 };
 
 /**

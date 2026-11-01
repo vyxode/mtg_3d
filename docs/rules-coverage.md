@@ -25,14 +25,34 @@ Referencia: Comprehensive Rules del 19 de junio de 2026. Cada regla marcada como
 | 704.5a, 704.5b, 704.5f, 704.5g | Vida ≤ 0, robar sin biblioteca, resistencia ≤ 0, daño letal | damage and SBA |
 | Determinismo | Misma semilla + mismas entradas = misma partida | random games |
 
+## Hecho (D2a) — `keywords-triggers.test.ts`
+
+| Regla | Qué |
+| --- | --- |
+| 702.9b, 702.17b | Volar: solo lo bloquean criaturas con volar o alcance |
+| 702.20b | Vigilancia: atacar no la gira |
+| 702.10 | Prisa: ataca y usa {T} con mareo de invocación |
+| 702.3b | Defensor: no puede atacar |
+| 702.110b | Amenaza: dos o más bloqueadores |
+| 702.7, 702.4, 510.4 | Primer golpe y dañar dos veces: segundo paso de daño de combate |
+| 702.2, 704.5h | Toque mortal: cualquier daño es letal |
+| 702.19b, 702.19e | Arrollar: daño letal a los bloqueadores antes del jugador; sin bloqueadores, todo al jugador |
+| 702.15b | Vínculo vital: gana vidas a la vez que el daño |
+| 702.12b | Indestructible: ignora el daño letal |
+| 603.2, 603.3b, 603.3d | Disparadas al entrar y al morir; en la pila antes de la prioridad; APNAP; orden propio; objetivos, retiradas si no hay ninguno |
+| 603.10a | Las disparadas al morir miran atrás (controlador anterior) |
+| 608.2b | Una habilidad con todos sus objetivos ilegales no se resuelve |
+| 115.1 | Contrarrestar hechizo no puede apuntar a habilidades |
+
 ## Atajos conocidos (comentados en el código con `shortcut:`)
 
 - 601.2 se envía como una sola respuesta (objetivos + pago a la vez); se valida en el orden de la regla.
 - El maná genérico se paga con incoloro y luego W, U, B, R, G; el jugador no elige qué maná sobra.
-- Sin último dato conocido todavía (llega con las disparadas en D2).
-- Sin vigilancia: todos los atacantes se giran (palabras clave en D2).
+- Una fuente que ya dejó su zona no tiene palabras clave (sin último dato conocido de características).
+- El daño letal para arrollar no cuenta el daño que otras criaturas asignan en el mismo paso.
 - Solo existe la capa 7c.
+- Si en una elección de objetivos solo hay una opción legal, el motor la elige solo.
 
-## Pendiente (D2)
+## Pendiente (D2b en adelante)
 
-Habilidades disparadas, retardadas y de estado · palabras clave de combate (primer golpe, dañar dos veces, toque mortal, arrollar, volar, alcance, vigilancia, amenaza, vínculo vital, indestructible, protección) · capas 1–7d con dependencias · reemplazo y prevención · copias · cartas de varias caras · planeswalkers · regla de leyendas (704.5j) · auras (704.5m) · costes adicionales y alternativos, X, modos.
+Disparadas al atacar, retardadas y de estado · protección y regeneración · capas 1–7d con dependencias · reemplazo y prevención · copias · cartas de varias caras · planeswalkers · regla de leyendas (704.5j) · auras (704.5m) · costes adicionales y alternativos, X, modos · habilidades activadas que no son de maná · fichas.
