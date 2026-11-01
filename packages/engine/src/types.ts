@@ -38,7 +38,7 @@ export type TargetSpec = 'anyTarget' | 'creature' | 'spell' | 'player'
   | 'cardInGraveyard';
 
 /** Counter kinds other than +1/+1 (kept in `GameObject.counters`) and loyalty. */
-export type CounterKind = 'quest';
+export type CounterKind = 'quest' | 'lore' | 'finality';
 
 /** Abilities an effect can grant until end of turn (layer 6). */
 export type GrantedAbility = Keyword | 'cantBeBlocked';
@@ -73,6 +73,18 @@ export type Effect =
   | { kind: 'searchBasicLand'; tapped: boolean; untapIfLands?: number; who?: 'targetController'; target?: number }
   /** 701.14: the creature this Aura enchants fights the target (each deals damage equal to its power to the other). */
   | { kind: 'enchantedFights'; target: number }
+  /** 701.25: look at the top N cards, put any of them into your graveyard and the rest back on top in any order. */
+  | { kind: 'surveil'; amount: number }
+  /** "If this spell was cast from a graveyard, exile it, then put it onto the battlefield transformed … with a finality counter on it." */
+  | { kind: 'transformOntoBattlefieldIfCastFromGraveyard' }
+  /** "Reveal the top card of your library. If it's a permanent card, put it into your hand." */
+  | { kind: 'revealTopPermanentToHand' }
+  /** A triggered (non-mana) ability that adds mana, e.g. a Saga chapter "Add {G}{G}". */
+  | { kind: 'addMana'; mana: ManaType[] }
+  /** "Other creatures you control get +X/+Y and gain … until end of turn" (affected set locked in, 611.2c). */
+  | { kind: 'pumpOthers'; power: number; toughness: number; grant?: GrantedAbility }
+  /** Crew (702.122): the source becomes an artifact creature until end of turn. */
+  | { kind: 'becomeCreature' }
   /** Exile a target card; with `track`, remember it was exiled with the source ("cards exiled with …"). */
   | { kind: 'exileTarget'; target: number; track?: true }
   /**
@@ -101,7 +113,7 @@ export type Keyword =
 /** "When [this] enters" / "When [this] dies" (603.6a, 603.6c with look-back). */
 export interface TriggerDef {
   /** landYouControlEnters = landfall: "whenever a land you control enters". */
-  on: 'selfEntersBattlefield' | 'selfDies' | 'controllerGainsLife' | 'landYouControlEnters'
+  on: 'selfEntersBattlefield' | 'selfDies' | 'controllerGainsLife' | 'landYouControlEnters' | 'selfAttacks'
     /** "Whenever a creature you control or a creature spell you control becomes the target of a spell or ability an opponent controls". */
     | 'creatureYouControlTargetedByOpponent'
     /** Only put on the stack by a `reflexive` effect of the same card (603.12). */
@@ -119,7 +131,8 @@ export interface ActivatedDef {
   /** Shown to players, e.g. "{T}: 1 damage to any target". */
   text: string;
   /** loyalty: +N adds, -N removes loyalty counters; a loyalty ability is sorcery-speed and once per turn (606.3). */
-  cost: { mana?: ManaCost; tap?: boolean; loyalty?: number; sacrifice?: true; exile?: true };
+  /** crew: tap any number of untapped creatures you control with total power N or more (702.122). */
+  cost: { mana?: ManaCost; tap?: boolean; loyalty?: number; sacrifice?: true; exile?: true; crew?: number };
   /** "Activate only as a sorcery" (602.5d). */
   sorcerySpeed?: true;
   targets: TargetSpec[];
@@ -161,6 +174,15 @@ export interface CardDef {
   statics?: StaticDef[];
   /** Replacement effects on entering the battlefield (614.1c, 614.12). */
   etb?: { tapped: true } | { tappedUnlessPayLife: number } | { tappedUnlessYouControlBasicLand: true };
+  /** Flashback (702.34): castable from your graveyard for this cost; then exiled whenever it would leave the stack. */
+  flashback?: ManaCost;
+  /** Double-faced cards (712): the front face names its back face, the back face names its front. */
+  backFace?: string;
+  frontFace?: string;
+  /** Sagas (714): the effects of chapters I, II, III… */
+  saga?: Effect[][];
+  /** Characteristic-defining ability (604.3, layer 7a): power equal to the number of lands its controller controls. */
+  powerIs?: 'landsYouControl';
   /** Auras (303.4): what it can enchant; casting it targets that. */
   enchant?: TargetSpec;
   /** Warp (702.185): may be cast from your hand for this cost; then exiled at the next end step and castable from exile later. */
@@ -221,7 +243,7 @@ export type Target = { kind: 'player'; player: PlayerId } | { kind: 'object'; id
 
 export type StackEntry =
   /** A spell: `id` is the card object in the stack zone. */
-  | { kind: 'spell'; id: ObjectId; card: string; controller: PlayerId; targets: Target[]; warp?: true }
+  | { kind: 'spell'; id: ObjectId; card: string; controller: PlayerId; targets: Target[]; warp?: true; flashback?: true }
   /** A triggered ability: not an object; `source` may already have left its zone (look-back). */
   | { kind: 'ability'; id: string; card: string; source: ObjectId; ability: { kind: 'trigger' | 'activated'; index: number }; controller: PlayerId; targets: Target[]; delayed?: { effects: Effect[]; subject: ObjectId } };
 
@@ -332,7 +354,7 @@ export interface GameState {
 export type LegalAction =
   | { kind: 'playLand'; card: ObjectId }
   /** `cost`: what the engine will charge, after reductions such as affinity. */
-  | { kind: 'cast'; card: ObjectId; targetOptions: Target[][]; cost: ManaCost; warp?: true }
+  | { kind: 'cast'; card: ObjectId; targetOptions: Target[][]; cost: ManaCost; warp?: true; flashback?: true }
   | { kind: 'activateMana'; source: ObjectId }
   | { kind: 'activate'; source: ObjectId; ability: number; targetOptions: Target[][] };
 
@@ -357,7 +379,9 @@ export type PendingDecision =
    * 701.23: choose a card found in your library by name, or none. Only the searching player sees the options;
    * library object ids are never sent, so a search reveals nothing about the library's order.
    */
-  | (DecisionBase & { kind: 'searchLibrary'; source: string; cards: string[] });
+  | (DecisionBase & { kind: 'searchLibrary'; source: string; cards: string[] })
+  /** 701.25: the top cards of your library, top first; answer with positions to bin and the order of the rest. */
+  | (DecisionBase & { kind: 'surveil'; source: string; cards: string[] });
 
 export type Response =
   | { kind: 'chooseStartingPlayer'; first: PlayerId }
@@ -366,9 +390,9 @@ export type Response =
   | { kind: 'bottomCards'; cards: ObjectId[] }
   | { kind: 'pass' }
   | { kind: 'playLand'; card: ObjectId; payLife?: boolean | undefined }
-  | { kind: 'cast'; card: ObjectId; targets: Target[]; payment: ObjectId[]; warp?: boolean | undefined }
+  | { kind: 'cast'; card: ObjectId; targets: Target[]; payment: ObjectId[]; warp?: boolean | undefined; flashback?: boolean | undefined }
   | { kind: 'activateMana'; source: ObjectId; mana?: ManaType | undefined }
-  | { kind: 'activate'; source: ObjectId; ability: number; targets: Target[]; payment: ObjectId[] }
+  | { kind: 'activate'; source: ObjectId; ability: number; targets: Target[]; payment: ObjectId[]; crew?: ObjectId[] | undefined }
   | { kind: 'declareAttackers'; attackers: ObjectId[]; planeswalkerTargets?: Record<ObjectId, ObjectId> | undefined }
   | { kind: 'declareBlockers'; blocks: { blocker: ObjectId; attacker: ObjectId }[] }
   | { kind: 'assignCombatDamage'; assignment: Record<string, number> }
@@ -376,7 +400,9 @@ export type Response =
   | { kind: 'orderTriggers'; order: string[] }
   | { kind: 'chooseTargets'; targets: Target[] }
   | { kind: 'legendRule'; keep: ObjectId }
-  | { kind: 'searchLibrary'; card: string | null };
+  | { kind: 'searchLibrary'; card: string | null }
+  /** Indices into the decision's cards: `graveyard` go to the graveyard, `top` go back on top, first = topmost. */
+  | { kind: 'surveil'; graveyard: number[]; top: number[] };
 
 /** What a client sends: its answer to the decision with id `decisionId`, or a concession at any time. */
 export type PlayerInput =
@@ -398,6 +424,9 @@ export type GameEvent =
   | { kind: 'searched'; player: PlayerId; found: ObjectId | null }
   /** "Becomes the target" (603.2): emitted as a spell or ability is put on the stack with its targets. */
   | { kind: 'targeted'; by: PlayerId; target: Target }
+  | { kind: 'revealed'; player: PlayerId; card: string }
+  | { kind: 'loreAdded'; id: ObjectId; from: number; to: number }
+  | { kind: 'surveilled'; player: PlayerId; toGraveyard: number; toTop: number }
   | { kind: 'tapped'; id: ObjectId }
   | { kind: 'untapped'; id: ObjectId }
   | { kind: 'manaAdded'; player: PlayerId; mana: ManaType }

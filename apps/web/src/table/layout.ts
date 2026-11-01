@@ -47,6 +47,8 @@ function badgesOf(o: VisibleObject): string[] {
   if (o.types.includes('Planeswalker')) out.push(`◆ ${String(o.loyalty)}`);
   if (o.counters > 0) out.push(`+1/+1 ×${String(o.counters)}`);
   if (o.otherCounters.quest) out.push(`misión ×${String(o.otherCounters.quest)}`);
+  if (o.otherCounters.lore) out.push(`capítulo ${String(o.otherCounters.lore)}`);
+  if (o.otherCounters.finality) out.push('finalidad');
   if (o.types.includes('Creature') && o.summoningSick && !CARDS.get(o.card)?.keywords?.includes('Haste')) out.push('mareada');
   return out;
 }

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { createGame, eventsFor, nextInt, seedRng, step, viewFor, type GameEvent, type GameState, type ObjectId, type PlayerId, type PlayerInput, type Response, type RngState } from '@mtg3d/engine';
-import { CARDS, DEFS } from './index';
+import { CARDS, DEFS, PRESET_DECKS } from './index';
 
 /** A tiny random "player" that only uses the decision's own options; rejected moves fall back to passing. */
 function randomResponse(s: GameState, rng: RngState): [Response, RngState] {
@@ -20,6 +20,11 @@ function randomResponse(s: GameState, rng: RngState): [Response, RngState] {
     }
     case 'assignCombatDamage': return [{ kind: 'assignCombatDamage', assignment: { [p.blockers[0] as ObjectId]: p.amount } }, r];
     case 'legendRule': return [{ kind: 'legendRule', keep: p.candidates[0] as ObjectId }, r];
+    case 'surveil': {
+      const idx = p.cards.map((_, i) => i);
+      const bin = idx.filter(() => pick(2) === 0);
+      return [{ kind: 'surveil', graveyard: bin, top: idx.filter((i) => !bin.includes(i)).reverse() }, r];
+    }
     case 'searchLibrary': return [{ kind: 'searchLibrary', card: pick(4) === 0 ? null : (p.cards[pick(p.cards.length)] ?? null) }, r];
     case 'orderTriggers': return [{ kind: 'orderTriggers', order: p.triggers.map((t) => t.id) }, r];
     case 'chooseTargets': return [{ kind: 'chooseTargets', targets: p.targetOptions.map((o) => o[pick(o.length)] as never) }, r];
@@ -30,7 +35,10 @@ function randomResponse(s: GameState, rng: RngState): [Response, RngState] {
       if (a.kind === 'activateMana') return [{ kind: 'activateMana', source: a.source }, r];
       if (a.kind === 'playLand') return [{ kind: 'playLand', card: a.card, payLife: pick(2) === 0 }, r];
       const sources = p.legal.flatMap((l) => (l.kind === 'activateMana' ? [l.source] : []));
-      if (a.kind === 'activate') return [{ kind: 'activate', source: a.source, ability: a.ability, targets: a.targetOptions.map((o) => o[pick(o.length)] as never), payment: sources.filter((x) => x !== a.source) }, r];
+      if (a.kind === 'activate') {
+        const crew = s.zones.battlefield.filter((id) => id !== a.source && s.objects[id]?.controller === p.player && !s.objects[id].tapped);
+        return [{ kind: 'activate', source: a.source, ability: a.ability, targets: a.targetOptions.map((o) => o[pick(o.length)] as never), payment: sources.filter((x) => x !== a.source && !crew.includes(x)), crew }, r];
+      }
       return [{ kind: 'cast', card: a.card, targets: a.targetOptions.map((o) => o[pick(o.length)] as never), payment: sources, warp: a.warp === true }, r];
     }
   }
@@ -39,7 +47,7 @@ function randomResponse(s: GameState, rng: RngState): [Response, RngState] {
 function randomDeck(rng: RngState): [string[], RngState] {
   let r = rng;
   const lands = DEFS.filter((d) => d.types.includes('Land')).map((d) => d.name);
-  const spells = DEFS.filter((d) => !d.types.includes('Land') && !d.token).map((d) => d.name);
+  const spells = DEFS.filter((d) => !d.types.includes('Land') && !d.token && !d.frontFace).map((d) => d.name);
   const deck: string[] = [];
   for (let i = 0; i < 40; i++) {
     const pool = i < 17 ? lands : spells;
@@ -71,8 +79,7 @@ function decksFor(seed: number): { p1: string[]; p2: string[]; rng: RngState } {
   return { p1, p2, rng };
 }
 
-function playRandomGame(seed: number, maxInputs = 3000): { state: GameState; inputs: PlayerInput[] } {
-  const decks = decksFor(seed);
+function playRandomGame(seed: number, maxInputs = 3000, decks = decksFor(seed)): { state: GameState; inputs: PlayerInput[] } {
   let rng = decks.rng;
   const created = createGame({ seed, decks: { p1: decks.p1, p2: decks.p2 } }, CARDS);
   if (!created.ok) throw new Error(created.error);
@@ -93,7 +100,7 @@ function playRandomGame(seed: number, maxInputs = 3000): { state: GameState; inp
     }
     if (!r.ok) throw new Error(`Seed ${String(seed)}: rejected ${response.kind}: ${r.error}`);
     // Invariants after every input
-    if (countOwned(r.state, 'p1') !== 40 || countOwned(r.state, 'p2') !== 40) throw new Error(`Seed ${String(seed)}: a card appeared or vanished`);
+    if (countOwned(r.state, 'p1') !== decks.p1.length || countOwned(r.state, 'p2') !== decks.p2.length) throw new Error(`Seed ${String(seed)}: a card appeared or vanished`);
     for (const viewer of ['p1', 'p2'] as const) assertNoLeak(r.state, r.events, viewer, seed);
     inputs.push(input);
     state = r.state;
@@ -109,6 +116,11 @@ describe('random games', () => {
       if (state.result) finished++;
     }
     expect(finished).toBeGreaterThan(45); // most games end within the input budget
+  }, 120_000);
+
+  it('plays the Mono-Green Landfall mirror (every mechanic of the meta deck) without errors', () => {
+    const deck = PRESET_DECKS['Mono-Green Landfall (meta Standard)'] as string[];
+    for (let seed = 1; seed <= 12; seed++) playRandomGame(seed, 3000, { p1: deck, p2: deck, rng: seedRng(seed * 7) });
   }, 120_000);
 
   it('replaying the same inputs reproduces the exact same game', () => {

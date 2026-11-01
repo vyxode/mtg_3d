@@ -16,9 +16,9 @@ export const responseSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('bottomCards'), cards: z.array(id).max(60) }),
   z.object({ kind: z.literal('pass') }),
   z.object({ kind: z.literal('playLand'), card: id, payLife: z.boolean().optional() }),
-  z.object({ kind: z.literal('cast'), card: id, targets: z.array(target).max(10), payment: z.array(id).max(60), warp: z.boolean().optional() }),
+  z.object({ kind: z.literal('cast'), card: id, targets: z.array(target).max(10), payment: z.array(id).max(60), warp: z.boolean().optional(), flashback: z.boolean().optional() }),
   z.object({ kind: z.literal('activateMana'), source: id, mana: z.enum(['W', 'U', 'B', 'R', 'G', 'C']).optional() }),
-  z.object({ kind: z.literal('activate'), source: id, ability: z.number().int().min(0).max(20), targets: z.array(target).max(10), payment: z.array(id).max(60) }),
+  z.object({ kind: z.literal('activate'), source: id, ability: z.number().int().min(0).max(20), targets: z.array(target).max(10), payment: z.array(id).max(60), crew: z.array(id).max(60).optional() }),
   z.object({ kind: z.literal('declareAttackers'), attackers: z.array(id).max(200), planeswalkerTargets: z.record(id, id).optional() }),
   z.object({ kind: z.literal('declareBlockers'), blocks: z.array(z.object({ blocker: id, attacker: id })).max(200) }),
   z.object({ kind: z.literal('assignCombatDamage'), assignment: z.record(id, z.number().int().min(0).max(1000)) }),
@@ -27,6 +27,7 @@ export const responseSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('chooseTargets'), targets: z.array(target).max(10) }),
   z.object({ kind: z.literal('legendRule'), keep: id }),
   z.object({ kind: z.literal('searchLibrary'), card: z.string().max(200).nullable() }),
+  z.object({ kind: z.literal('surveil'), graveyard: z.array(z.number().int().min(0).max(100)).max(100), top: z.array(z.number().int().min(0).max(100)).max(100) }),
 ]) satisfies z.ZodType<Response>;
 
 const name = z.string().trim().min(1).max(24);

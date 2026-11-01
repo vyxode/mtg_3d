@@ -1,3 +1,4 @@
+import { CARDS } from '@mtg3d/cards';
 import { io, type Socket } from 'socket.io-client';
 import type { ClientToServer, ServerToClient } from '@mtg3d/protocol';
 
@@ -30,6 +31,8 @@ export function saveSession(s: Session | null): void {
   } catch { /* private mode: reconnection after reload just won't work */ }
 }
 
-/** Official card image by exact Oracle name, served by Scryfall (never cropped or recolored). */
-export const cardImage = (name: string): string =>
-  `https://api.scryfall.com/cards/named?exact=${encodeURIComponent(name)}&format=image&version=normal`;
+/** Official card image by exact Oracle name, served by Scryfall (never cropped or recolored); a back face asks for face=back. */
+export function cardImage(name: string): string {
+  const front = CARDS.get(name)?.frontFace;
+  return `https://api.scryfall.com/cards/named?exact=${encodeURIComponent(front ?? name)}&format=image&version=normal${front ? '&face=back' : ''}`;
+}

@@ -235,6 +235,31 @@ export const DEFS: CardDef[] = [
     activated: [{ text: '{1}: exilia una carta de un cementerio', cost: { mana: parseManaCost('{1}') }, targets: ['cardInGraveyard'], effects: [{ kind: 'exileTarget', target: 0, track: true }] }],
   }),
 
+  // D3d: flashback, double-faced cards, Sagas, surveil, Vehicles.
+  {
+    name: 'Esper Origins', status: 'tested', manaCost: parseManaCost('{1}{G}'), types: ['Sorcery'],
+    flashback: parseManaCost('{3}{G}'), backFace: 'Summon: Esper Maduin',
+    spell: { targets: [], effects: [{ kind: 'surveil', amount: 2 }, { kind: 'gainLife', amount: 2 }, { kind: 'transformOntoBattlefieldIfCastFromGraveyard' }] },
+  },
+  {
+    name: 'Summon: Esper Maduin', status: 'tested', manaCost: null, types: ['Enchantment', 'Creature'], subtypes: ['Saga', 'Elemental'],
+    power: 4, toughness: 4, frontFace: 'Esper Origins',
+    saga: [
+      [{ kind: 'revealTopPermanentToHand' }],
+      [{ kind: 'addMana', mana: ['G', 'G'] }],
+      [{ kind: 'pumpOthers', power: 2, toughness: 2, grant: 'Trample' }],
+    ],
+  },
+  {
+    name: 'Lumbering Worldwagon', status: 'tested', manaCost: parseManaCost('{2}{G}'), types: ['Artifact'], subtypes: ['Vehicle'],
+    powerIs: 'landsYouControl', toughness: 4,
+    triggers: [
+      { on: 'selfEntersBattlefield', targets: [], effects: [{ kind: 'searchBasicLand', tapped: true }] },
+      { on: 'selfAttacks', targets: [], effects: [{ kind: 'searchBasicLand', tapped: true }] },
+    ],
+    activated: [{ text: 'Tripular 4', cost: { crew: 4 }, targets: [], effects: [{ kind: 'becomeCreature' }] }],
+  },
+
   // shortcut: token definitions are keyed by name; give them distinct keys when two cards make different "Treefolk" tokens.
   { name: 'Treefolk', status: 'tested', manaCost: null, types: ['Creature'], subtypes: ['Treefolk'], power: 3, toughness: 4, keywords: ['Reach'], token: true },
 ];

@@ -3,7 +3,7 @@ import { CARDS, DEFS } from '@mtg3d/cards';
 import { manaValue, type ManaCost } from '@mtg3d/engine';
 import { cardImage } from './net';
 import {
-  FORMATS, TYPE_GROUPS, colorSymbols, countOf, exportDeckText, loadDecks, manaCurve, newDeck, parseDeckText, saveDecks, typeGroup, validateDeck,
+  FORMATS, TYPE_GROUPS, colorSymbols, countOf, exportDeckText, frontName, loadDecks, manaCurve, newDeck, parseDeckText, saveDecks, typeGroup, validateDeck,
   type Deck, type DeckCard, type Format,
 } from './decks';
 
@@ -22,7 +22,7 @@ const costText = (c: ManaCost | null): string => {
 };
 
 /** Implemented cards as search results, used while the server has no catalog. */
-const LOCAL: Result[] = DEFS.filter((d) => !d.token).map((d) => ({
+const LOCAL: Result[] = DEFS.filter((d) => !d.token && !d.frontFace).map((d) => ({
   oracleId: null, name: d.name, cmc: manaValue(d.manaCost), manaCost: costText(d.manaCost), oracleText: '', printingCount: 1,
   typeLine: [d.supertypes?.join(' '), d.types.join(' ')].filter(Boolean).join(' ') + (d.subtypes?.length ? ` — ${d.subtypes.join(' ')}` : ''),
   image: cardImage(d.name), legalities: {}, anyNumber: false,
@@ -60,7 +60,7 @@ export function DeckBuilder() {
     p.set('page', String(page));
     const r = await (await fetch(`/api/cards?${p.toString()}`)).json() as { total: number; page: number; cards: { oracleId: string; name: string; cmc: number; typeLine: string; manaCost: string; oracleText: string; legalities: Record<string, string>; printings: Printing[]; printingCount: number }[] };
     setResults({ total: r.total, page: r.page, cards: r.cards.map((c) => ({
-      oracleId: c.oracleId, name: c.name, cmc: c.cmc, typeLine: c.typeLine, manaCost: c.manaCost, oracleText: c.oracleText, legalities: c.legalities,
+      oracleId: c.oracleId, name: frontName(c.name), cmc: c.cmc, typeLine: c.typeLine, manaCost: c.manaCost, oracleText: c.oracleText, legalities: c.legalities,
       image: c.printings[0]?.image ?? cardImage(c.name), printingCount: c.printingCount, anyNumber: /A deck can have any number of cards named/i.test(c.oracleText),
     })) });
   };

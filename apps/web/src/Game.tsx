@@ -20,7 +20,7 @@ const STEP_NAMES: Record<Step, string> = {
 const DECISION_NAMES: Record<PendingDecision['kind'], string> = {
   chooseStartingPlayer: 'elegir quién empieza', mulligan: 'decidir el mulligan', bottomCards: 'poner cartas al fondo',
   priority: 'actuar', declareAttackers: 'declarar atacantes', declareBlockers: 'declarar bloqueadores',
-  assignCombatDamage: 'repartir daño', discard: 'descartar', orderTriggers: 'ordenar sus habilidades', chooseTargets: 'elegir objetivos', legendRule: 'aplicar la regla de leyendas', searchLibrary: 'buscar en su biblioteca',
+  assignCombatDamage: 'repartir daño', discard: 'descartar', orderTriggers: 'ordenar sus habilidades', chooseTargets: 'elegir objetivos', legendRule: 'aplicar la regla de leyendas', searchLibrary: 'buscar en su biblioteca', surveil: 'vigilar',
 };
 
 interface Props { room: RoomState; update: GameUpdate; onError: (e: string | null) => void }
@@ -219,6 +219,8 @@ function MyDecision({ view, d, nameOf, send, onError }: { view: PlayerView; d: P
         <h3>Regla de leyendas: quédate con un {d.name}</h3>
         <Zone title="Elige cuál conservar" cards={d.candidates.map((id) => view.objects[id]).filter((o): o is VisibleObject => !!o)} onClick={(id) => void send({ kind: 'legendRule', keep: id })} />
       </>);
+    case 'surveil':
+      return <Surveil d={d} send={send} />;
     case 'searchLibrary':
       return (<>
         <h3>{d.source}: busca en tu biblioteca</h3>
@@ -236,6 +238,38 @@ function MyDecision({ view, d, nameOf, send, onError }: { view: PlayerView; d: P
 }
 
 /** Picks one target per slot, then calls onDone with all of them. */
+/** 701.25: choose which top cards go to the graveyard; the rest go back on top in the order shown (topmost first). */
+function Surveil({ d, send }: { d: Extract<PendingDecision, { kind: 'surveil' }>; send: (r: Response) => Promise<void> }) {
+  const [order, setOrder] = useState(() => d.cards.map((_, i) => i));
+  const [binned, setBinned] = useState<Set<number>>(new Set());
+  const move = (k: number) => { const next = [...order]; [next[k - 1], next[k]] = [next[k] as number, next[k - 1] as number]; setOrder(next); };
+  return (<>
+    <h3>{d.source}: vigila {d.cards.length}</h3>
+    <p className="muted">Marca las que van al cementerio; el resto vuelve arriba en este orden (la primera queda encima).</p>
+    {order.map((i, k) => (
+      <div key={i} className="row">
+        <label className="inline"><input type="checkbox" checked={binned.has(i)} onChange={(e) => { const next = new Set(binned); if (e.target.checked) next.add(i); else next.delete(i); setBinned(next); }} />{d.cards[i]}</label>
+        {k > 0 && <button onClick={() => { move(k); }} aria-label={`Subir ${d.cards[i] ?? ''}`}>↑</button>}
+      </div>
+    ))}
+    <button className="primary" onClick={() => void send({ kind: 'surveil', graveyard: [...binned], top: order.filter((i) => !binned.has(i)) })}>Confirmar</button>
+  </>);
+}
+
+/** Crew (702.122): pick untapped creatures with enough total power. */
+function CrewPicker({ view, vehicle, need, onDone, onCancel }: { view: PlayerView; vehicle: ObjectId; need: number; onDone: (crew: ObjectId[]) => void; onCancel: () => void }) {
+  const [picked, setPicked] = useState<Set<ObjectId>>(new Set());
+  const options = view.zones.battlefield.map((id) => view.objects[id]).filter((o): o is VisibleObject => !!o && o.controller === view.viewer && !o.tapped && o.id !== vehicle && o.types.includes('Creature'));
+  const total = [...picked].reduce((n, id) => n + Math.max(0, view.objects[id]?.power ?? 0), 0);
+  const toggle = (id: ObjectId) => { const next = new Set(picked); if (next.has(id)) next.delete(id); else next.add(id); setPicked(next); };
+  return (<>
+    <h3>Tripular {need}: elige criaturas (fuerza {total}/{need})</h3>
+    <Zone title="Tus criaturas enderezadas" cards={options} selected={picked} onClick={toggle} />
+    <button className="primary" disabled={total < need} onClick={() => { onDone([...picked]); }}>Tripular</button>
+    <button className="link" onClick={onCancel}>Cancelar</button>
+  </>);
+}
+
 function TargetPicker({ options, view, nameOf, onDone, onCancel, optional }: { options: Target[][]; view: PlayerView; nameOf: (p: PlayerId) => string; onDone: (t: Target[]) => void; onCancel?: () => void; optional?: boolean }) {
   const [chosen, setChosen] = useState<Target[]>([]);
   const slot = options[chosen.length] ?? [];
@@ -354,10 +388,15 @@ function Priority({ view, d, nameOf, send, onError }: { view: PlayerView; d: Ext
   const cardOf = (id: ObjectId) => view.objects[id]?.card ?? '';
   const payment = (a: Targeted) => paymentFor(view, d.legal, a);
 
-  const finish = (a: Targeted, targets: Target[]) => {
+  const [crewing, setCrewing] = useState<Extract<LegalAction, { kind: 'activate' }> | null>(null);
+  const crewNeed = (a: LegalAction) => (a.kind === 'activate' ? CARDS.get(cardOf(a.source))?.activated?.[a.ability]?.cost.crew : undefined);
+
+  const finish = (a: Targeted, targets: Target[], crew?: ObjectId[]) => {
     const pay = payment(a);
     if (!pay) { onError(`No tienes maná suficiente para ${cardOf(subject(a))}.`); return; }
-    void send(a.kind === 'cast' ? { kind: 'cast', card: a.card, targets, payment: pay, warp: a.warp === true } : { kind: 'activate', source: a.source, ability: a.ability, targets, payment: pay });
+    void send(a.kind === 'cast'
+      ? { kind: 'cast', card: a.card, targets, payment: pay, warp: a.warp === true, flashback: a.flashback === true }
+      : { kind: 'activate', source: a.source, ability: a.ability, targets, payment: pay, crew });
   };
 
   const choose = (a: LegalAction, mana?: ManaType) => {
@@ -366,10 +405,15 @@ function Priority({ view, d, nameOf, send, onError }: { view: PlayerView; d: Ext
       const payLife = !!etb && 'tappedUnlessPayLife' in etb && confirm(`¿Pagar ${String(etb.tappedUnlessPayLife)} vidas para que ${cardOf(a.card)} entre enderezada?`);
       void send({ kind: 'playLand', card: a.card, payLife });
     } else if (a.kind === 'activateMana') void send({ kind: 'activateMana', source: a.source, mana });
+    else if (crewNeed(a) !== undefined && a.kind === 'activate') setCrewing(a);
     else if (a.targetOptions.length === 0) finish(a, []);
     else setPending(a);
   };
 
+  if (crewing) {
+    return <CrewPicker view={view} vehicle={crewing.source} need={crewNeed(crewing) ?? 0}
+      onDone={(crew) => { setCrewing(null); finish(crewing, [], crew); }} onCancel={() => { setCrewing(null); }} />;
+  }
   if (pending) {
     return (<>
       <h3>{cardOf(subject(pending))}: elige objetivo</h3>
@@ -381,7 +425,7 @@ function Priority({ view, d, nameOf, send, onError }: { view: PlayerView; d: Ext
   const usable = usableActions(view, d.legal);
   const label = (a: LegalAction): string[] => {
     if (a.kind === 'playLand') return [`Jugar ${cardOf(a.card)}${view.objects[a.card]?.zone === 'graveyard' ? ' desde el cementerio' : ''}`];
-    if (a.kind === 'cast') return [`Lanzar ${cardOf(a.card)}${a.warp ? ' por warp' : view.objects[a.card]?.zone === 'exile' ? ' desde el exilio' : ''}`];
+    if (a.kind === 'cast') return [`Lanzar ${cardOf(a.card)}${a.warp ? ' por warp' : a.flashback ? ' con flashback' : view.objects[a.card]?.zone === 'exile' ? ' desde el exilio' : ''}`];
     if (a.kind === 'activate') return [`${cardOf(a.source)}: ${CARDS.get(cardOf(a.source))?.activated?.[a.ability]?.text ?? 'activar'}`];
     return [];
   };
@@ -424,6 +468,8 @@ function describe(e: GameEvent, names: Map<ObjectId, string>, nameOf: (p: Player
     case 'triggered': return `Se dispara la habilidad de ${e.card} (${nameOf(e.controller)}).`;
     case 'activated': return `${nameOf(e.controller)} activa una habilidad de ${e.card}.`;
     case 'tokenCreated': return `${nameOf(e.controller)} crea una ficha de ${e.card}.`;
+    case 'revealed': return `${nameOf(e.player)} muestra ${e.card}.`;
+    case 'surveilled': return `${nameOf(e.player)} vigila: ${String(e.toGraveyard)} al cementerio, ${String(e.toTop)} arriba.`;
     case 'searched': return e.found ? `${nameOf(e.player)} busca en su biblioteca y pone ${n(e.found)} en el campo.` : `${nameOf(e.player)} busca en su biblioteca y no coge nada.`;
     case 'playerLost': return `${nameOf(e.player)} pierde (${e.reason === 'conceded' ? 'concede' : e.reason === 'life' ? 'sin vidas' : 'sin cartas'}).`;
     default: return null;

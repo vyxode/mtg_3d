@@ -106,7 +106,23 @@ Cartas: Mightform Harmonizer, Ba Sing Se, Earthbender Ascension, Surrak, Elusive
 | 607 | "Cartas exiliadas con…" y estáticas condicionales por tipos de carta |
 | 608.2h | Último dato conocido del controlador de un objetivo ("el controlador de esa tierra") |
 
-Cartas: Meltstrider's Resolve, Demolition Field, Keen-Eyed Curator. «Landfall verde» lleva 55 de las 60 cartas del meta; faltan Esper Origins (flashback, doble cara, saga) y Lumbering Worldwagon (vehículo).
+Cartas: Meltstrider's Resolve, Demolition Field, Keen-Eyed Curator.
+
+## Hecho (D3d) — `d3d.test.ts`
+
+| Regla | Qué |
+| --- | --- |
+| 702.34 | Flashback: se lanza desde el cementerio y se exilia al dejar la pila |
+| 712 | Cartas de doble cara: fuera del campo solo existe la cara frontal; entrar transformada |
+| 714 | Sagas: contador de capítulo al entrar y al empezar la fase principal precombate; habilidades de capítulo; sacrificio tras el último |
+| 701.25 | Vigilar |
+| — | Contador de finalidad: si fuera a morir, se exilia |
+| 702.122 | Vehículos y tripular |
+| 604.3 | Habilidades que definen características (fuerza = tus tierras) |
+| 508 | Disparadas "siempre que ataque" |
+| 202.1b | Una carta sin coste de maná no se puede lanzar normalmente |
+
+Cartas: Esper Origins // Summon: Esper Maduin, Lumbering Worldwagon. **El mazo Mono-Green Landfall del meta está completo: sus 60 cartas.**
 
 ## Atajos conocidos (comentados en el código con `shortcut:`)
 
@@ -119,6 +135,6 @@ Cartas: Meltstrider's Resolve, Demolition Field, Keen-Eyed Curator. «Landfall v
 - La regla de leyendas se aplica tras las demás acciones basadas en estado, no a la vez, porque necesita una elección.
 - Solo existen contadores +1/+1 y de lealtad.
 
-## Pendiente (D3d en adelante)
+## Pendiente
 
-Flashback, cartas de doble cara y sagas (Esper Origins) · equipos · vehículos y tripular · escudriñar, vigilar · disparadas al atacar, retardadas y de estado · protección y regeneración · capas 1–7d con dependencias · reemplazo y prevención generales · copias · cartas de varias caras · costes adicionales y alternativos, X, modos · contadores -1/-1 y otros.
+Los demás mazos del meta (Dimir Midrange, Izzet Spellementals…) · equipos · escudriñar · disparadas al atacar, retardadas y de estado · protección y regeneración · capas 1–7d con dependencias · reemplazo y prevención generales · copias · cartas de varias caras · costes adicionales y alternativos, X, modos · contadores -1/-1 y otros.

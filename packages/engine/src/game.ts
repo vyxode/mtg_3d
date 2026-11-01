@@ -46,6 +46,9 @@ export function characteristics(s: GameState, reg: CardRegistry, id: ObjectId): 
   const keywords = [...(def.keywords ?? [])];
   let power = def.power ?? 0;
   let toughness = def.toughness ?? 0;
+  if (def.powerIs === 'landsYouControl') { // 604.3, layer 7a: works in every zone
+    power = s.zones.battlefield.filter((x) => s.objects[x]?.controller === obj.controller && defOf(reg, s.objects[x].card).types.includes('Land')).length;
+  }
   // 613: apply effects layer by layer, each layer in timestamp order (dependencies don't arise with these effects).
   const mine = s.effects.filter((e) => e.affected === id).sort((a, b) => a.timestamp - b.timestamp);
   for (const e of mine) if (e.layer === '4' && !types.includes(e.addType)) types.push(e.addType);
@@ -121,16 +124,25 @@ function zoneList(s: GameState, zone: ZoneName, owner: PlayerId): ObjectId[] | n
  * Moves an object to another zone. Per rule 400.7 it becomes a new object with a new id.
  * The zoneChange event carries what look-back triggers need (card, last controller).
  */
-function moveObject(ctx: Ctx, id: ObjectId, to: ZoneName, opts: { bottom?: boolean; controller?: PlayerId; payLife?: boolean } = {}): ObjectId {
+function moveObject(ctx: Ctx, id: ObjectId, dest: ZoneName, opts: { bottom?: boolean; controller?: PlayerId; payLife?: boolean; transformed?: boolean } = {}): ObjectId {
   const s = ctx.s;
   const obj = s.objects[id] ?? fail(`Unknown object ${id}`);
+  let to = dest;
+  // 702.34a: a flashback spell is exiled instead of going anywhere else when it leaves the stack.
+  if (obj.zone === 'stack' && to !== 'exile' && s.stack.some((e) => e.id === id && e.kind === 'spell' && e.flashback)) to = 'exile';
+  // Finality counter: "if a creature with a finality counter on it would die, exile it instead".
+  if (obj.zone === 'battlefield' && to === 'graveyard' && (obj.kindCounters?.finality ?? 0) > 0) to = 'exile';
+  // 712.8: outside the battlefield (and stack) a double-faced card has only its front face.
+  const front = ctx.reg.get(obj.card)?.frontFace;
+  const card = to === 'battlefield' && opts.transformed ? defOf(ctx.reg, obj.card).backFace ?? fail(`${obj.card} has no back face`)
+    : front !== undefined && to !== 'battlefield' ? front : obj.card;
   const fromList = zoneList(s, obj.zone, obj.owner);
   if (fromList) fromList.splice(fromList.indexOf(id), 1);
   else s.stack = s.stack.filter((e) => e.id !== id);
   Reflect.deleteProperty(s.objects, id);
   s.effects = s.effects.filter((e) => e.affected !== id); // 400.7: effects on the old object don't follow it
 
-  const newId = newObject(ctx, obj.card, obj.owner, to);
+  const newId = newObject(ctx, card, obj.owner, to);
   const moved = s.objects[newId] as GameObject;
   moved.controller = opts.controller ?? obj.owner;
   const toList = zoneList(s, to, obj.owner);
@@ -139,10 +151,10 @@ function moveObject(ctx: Ctx, id: ObjectId, to: ZoneName, opts: { bottom?: boole
     else toList.push(newId);
   }
   if (to === 'battlefield') {
-    moved.loyalty = ctx.reg.get(obj.card)?.loyalty ?? 0; // 306.5b
-    moved.counters = ctx.reg.get(obj.card)?.entersWithCounters ?? 0; // 614.1c
+    moved.loyalty = ctx.reg.get(card)?.loyalty ?? 0; // 306.5b
+    moved.counters = ctx.reg.get(card)?.entersWithCounters ?? 0; // 614.1c
   }
-  const etb = to === 'battlefield' ? ctx.reg.get(obj.card)?.etb : undefined;
+  const etb = to === 'battlefield' ? ctx.reg.get(card)?.etb : undefined;
   if (etb && 'tapped' in etb) moved.tapped = true; // 614.1c
   if (etb && 'tappedUnlessYouControlBasicLand' in etb) {
     const basic = s.zones.battlefield.some((x) => x !== newId && (s.objects[x] as GameObject).controller === moved.controller && !!ctx.reg.get((s.objects[x] as GameObject).card)?.supertypes?.includes('Basic'));
@@ -152,8 +164,17 @@ function moveObject(ctx: Ctx, id: ObjectId, to: ZoneName, opts: { bottom?: boole
     if (opts.payLife) setLife(ctx, moved.controller, s.players[moved.controller].life - etb.tappedUnlessPayLife);
     else moved.tapped = true;
   }
-  ctx.events.push({ kind: 'zoneChange', from: id, to: newId, card: obj.card, fromZone: obj.zone, toZone: to, owner: obj.owner, lastController: obj.controller });
+  ctx.events.push({ kind: 'zoneChange', from: id, to: newId, card, fromZone: obj.zone, toZone: to, owner: obj.owner, lastController: obj.controller });
+  if (to === 'battlefield' && ctx.reg.get(card)?.saga) addLore(ctx, newId); // 714.3a: as a Saga enters
   return newId;
+}
+
+/** Puts a lore counter on a Saga; its chapter abilities trigger from the event (714.2b). */
+function addLore(ctx: Ctx, id: ObjectId): void {
+  const o = ctx.s.objects[id] as GameObject;
+  const from = o.kindCounters?.lore ?? 0;
+  o.kindCounters = { ...o.kindCounters, lore: from + 1 };
+  ctx.events.push({ kind: 'loreAdded', id, from, to: from + 1 });
 }
 
 function draw(ctx: Ctx, p: PlayerId): void {
@@ -205,6 +226,12 @@ function runSBA(ctx: Ctx): boolean {
       const o = s.objects[id] as GameObject;
       if (c.toughness <= 0) toGraveyard.push(id); // 704.5f (not destruction: indestructible doesn't help)
       else if (!c.keywords.includes('Indestructible') && (o.damage >= c.toughness || o.deathtouchDamage)) toGraveyard.push(id); // 704.5g, 704.5h
+    }
+    for (const id of s.zones.battlefield) { // 714.4: a Saga with its last chapter reached and no chapter ability waiting is sacrificed
+      const o = s.objects[id] as GameObject;
+      const chapters = ctx.reg.get(o.card)?.saga?.length ?? 0;
+      const waiting = s.stack.some((e) => e.kind === 'ability' && e.delayed?.subject === id) || s.pendingTriggers.some((t) => t.delayed?.subject === id);
+      if (chapters > 0 && (o.kindCounters?.lore ?? 0) >= chapters && !waiting) toGraveyard.push(id);
     }
     for (const id of s.zones.battlefield) { // 704.5m: an Aura attached to nothing, or to something it can't enchant
       const o = s.objects[id] as GameObject;
@@ -279,6 +306,17 @@ function scanTriggers(ctx: Ctx): void {
         ctx.s.delayedTriggers = ctx.s.delayedTriggers.filter((x) => x.id !== d.id); // it triggers only once (603.7c)
         ctx.s.pendingTriggers.push({ id: d.id, card: d.card, source: e.to, trigger: -1, controller: d.controller, ordered: false, delayed: { effects: d.effects, subject: e.to } });
       }
+    }
+    if (e.kind === 'loreAdded') {
+      const o = ctx.s.objects[e.id];
+      const saga = o ? ctx.reg.get(o.card)?.saga ?? [] : [];
+      for (let ch = e.from + 1; ch <= e.to && o; ch++) {
+        const effects = saga[ch - 1];
+        if (effects) ctx.s.pendingTriggers.push({ id: `t${String(ctx.s.nextId++)}`, card: o.card, source: o.id, trigger: -1, controller: o.controller, ordered: false, delayed: { effects, subject: o.id } });
+      }
+    }
+    if (e.kind === 'attackersDeclared') {
+      for (const id of e.attackers) { const o = ctx.s.objects[id]; if (o) add(o.card, id, o.controller, 'selfAttacks'); }
     }
     if (e.kind === 'targeted' && e.target.kind === 'object') {
       const o = ctx.s.objects[e.target.id];
@@ -375,6 +413,7 @@ function announceTargets(ctx: Ctx, by: PlayerId, targets: Target[]): void {
 function givePriority(ctx: Ctx, p: PlayerId): void {
   ctx.s.priorityTo = p;
   for (;;) {
+    scanTriggers(ctx); // abilities trigger when their event happens (603.2), before SBAs run (e.g. a Saga's last chapter, 714.4)
     runSBA(ctx);
     if (ctx.s.result || ctx.blocked) return;
     scanTriggers(ctx);
@@ -448,8 +487,14 @@ function legalActions(ctx: Ctx, p: PlayerId): LegalAction[] {
     if (!isType(def, 'Instant') && !sorcerySpeed) continue;
     const opts = spellTargets(def).map((spec) => targetOptions(ctx, spec, p));
     if (!opts.every((o) => o.length > 0)) continue;
-    out.push({ kind: 'cast', card: id, targetOptions: opts, cost: costToCast(ctx, p, def) });
+    if (def.manaCost !== null) out.push({ kind: 'cast', card: id, targetOptions: opts, cost: costToCast(ctx, p, def) }); // 202.1b
     if (def.warp) out.push({ kind: 'cast', card: id, targetOptions: opts, cost: def.warp, warp: true });
+  }
+  for (const id of s.zones.graveyard[p]) { // 702.34a flashback
+    const def = defOf(ctx.reg, (s.objects[id] as GameObject).card);
+    if (!def.flashback || (!isType(def, 'Instant') && !sorcerySpeed)) continue;
+    const opts = spellTargets(def).map((spec) => targetOptions(ctx, spec, p));
+    if (opts.every((x) => x.length > 0)) out.push({ kind: 'cast', card: id, targetOptions: opts, cost: def.flashback, flashback: true });
   }
   for (const id of s.zones.exile) {
     const o = s.objects[id] as GameObject;
@@ -469,6 +514,7 @@ function legalActions(ctx: Ctx, p: PlayerId): LegalAction[] {
     defOf(ctx.reg, o.card).activated?.forEach((ab, ability) => {
       if (ab.cost.tap && !canTapForCost(ctx, id)) return;
       if (ab.sorcerySpeed && !sorcerySpeed) return;
+      if (ab.cost.crew !== undefined && crewPower(ctx, crewCandidates(ctx, p, id)) < ab.cost.crew) return;
       if (ab.cost.loyalty !== undefined && !canPayLoyalty(ctx, p, id, ab.cost.loyalty)) return;
       const opts = ab.targets.map((spec) => targetOptions(ctx, spec, p));
       if (opts.every((x) => x.length > 0)) out.push({ kind: 'activate', source: id, ability, targetOptions: opts });
@@ -476,6 +522,12 @@ function legalActions(ctx: Ctx, p: PlayerId): LegalAction[] {
   }
   return out;
 }
+
+/** Untapped creatures that could crew a Vehicle (702.122a): any of yours but the Vehicle itself; summoning sickness doesn't matter. */
+const crewCandidates = (ctx: Ctx, p: PlayerId, vehicle: ObjectId): ObjectId[] =>
+  ctx.s.zones.battlefield.filter((id) => id !== vehicle && (ctx.s.objects[id] as GameObject).controller === p && !(ctx.s.objects[id] as GameObject).tapped && isCreatureOnBattlefield(ctx, id));
+const crewPower = (ctx: Ctx, crew: ObjectId[]): number =>
+  crew.reduce((n, id) => n + Math.max(0, characteristics(ctx.s, ctx.reg, id).power), 0);
 
 /** A spell's targets: an Aura spell targets what it will enchant (303.4a). */
 const spellTargets = (def: CardDef): TargetSpec[] => (def.enchant ? [def.enchant] : def.spell?.targets ?? []);
@@ -545,8 +597,16 @@ function activate(ctx: Ctx, p: PlayerId, r: Extract<Response, { kind: 'activate'
   }
   if (ab.cost.loyalty !== undefined && !canPayLoyalty(ctx, p, r.source, ab.cost.loyalty)) fail('That loyalty ability cannot be activated now');
   if (ab.sorcerySpeed && !canCastSorcerySpeed(ctx, p)) fail('That ability can only be activated as a sorcery');
+  const crew = r.crew ?? [];
+  if (ab.cost.crew !== undefined) {
+    const allowed = crewCandidates(ctx, p, r.source);
+    if (new Set(crew).size !== crew.length || !crew.every((id) => allowed.includes(id))) fail('Crew with untapped creatures you control');
+    if (crewPower(ctx, crew) < ab.cost.crew) fail(`Crew needs total power ${String(ab.cost.crew)} or more`);
+    if (crew.some((id) => r.payment.includes(id))) fail('A creature that crews cannot also tap for mana');
+  }
   payCost(ctx, p, r.payment, ab.cost.mana ?? { generic: 0 });
   if (ab.cost.tap) tap(ctx, r.source);
+  for (const id of crew) tap(ctx, id);
   if (ab.cost.loyalty !== undefined) {
     const o = s.objects[r.source] as GameObject;
     o.loyalty += ab.cost.loyalty;
@@ -601,8 +661,10 @@ function cast(ctx: Ctx, p: PlayerId, r: Extract<Response, { kind: 'cast' }>): vo
   const s = ctx.s;
   const obj = s.objects[r.card] ?? fail('Unknown card');
   const fromExile = castableFromExile(ctx, p, obj);
-  if ((obj.zone !== 'hand' && !fromExile) || obj.owner !== p) fail('You cannot cast that card from where it is');
   const def = defOf(ctx.reg, obj.card);
+  const flashback = r.flashback === true && obj.zone === 'graveyard' && !!def.flashback;
+  if (r.flashback && !flashback) fail('Only a card with flashback in your graveyard can be cast with flashback');
+  if ((obj.zone !== 'hand' && !fromExile && !flashback) || obj.owner !== p) fail('You cannot cast that card from where it is');
   if (def.status === 'unsupported') fail(`${def.name} is not implemented`);
   if (r.warp && (obj.zone !== 'hand' || !def.warp)) fail('Only a card with warp in your hand can be cast for its warp cost');
   if (isType(def, 'Land')) fail('Lands are played, not cast');
@@ -612,10 +674,11 @@ function cast(ctx: Ctx, p: PlayerId, r: Extract<Response, { kind: 'cast' }>): vo
   if (r.targets.length !== specs.length) fail(`Expected ${String(specs.length)} target(s)`);
   specs.forEach((spec, i) => { if (!isLegalTarget(ctx, spec, r.targets[i] as Target, null, p)) fail(`Illegal target #${String(i + 1)}`); });
 
-  payCost(ctx, p, r.payment, r.warp && def.warp ? def.warp : costToCast(ctx, p, def));
+  if (def.manaCost === null && !flashback && !r.warp) fail(`${def.name} has no mana cost and can't be cast normally`); // 202.1b
+  payCost(ctx, p, r.payment, flashback && def.flashback ? def.flashback : r.warp && def.warp ? def.warp : costToCast(ctx, p, def));
 
   const spell = moveObject(ctx, r.card, 'stack', { controller: p });
-  s.stack.push({ kind: 'spell', id: spell, card: def.name, controller: p, targets: r.targets, ...(r.warp && { warp: true as const }) });
+  s.stack.push({ kind: 'spell', id: spell, card: def.name, controller: p, targets: r.targets, ...(r.warp && { warp: true as const }), ...(flashback && { flashback: true as const }) });
   ctx.events.push({ kind: 'cast', player: p, spell, targets: r.targets });
   announceTargets(ctx, p, r.targets);
   afterAction(ctx, p);
@@ -801,6 +864,43 @@ function runEffect(ctx: Ctx, effect: Effect, r: Resolution): boolean {
         if (o.controller === controller && (ctx.reg.get(o.card)?.subtypes ?? []).some((st) => effect.subtypes.includes(st))) untilEndOfTurn(id, effect.ability);
       }
       break;
+    case 'surveil': {
+      const top = s.zones.library[controller].slice(0, effect.amount);
+      if (top.length === 0) break;
+      setPending(ctx, { kind: 'surveil', player: controller, source: r.entry.card, cards: top.map((id) => (s.objects[id] as GameObject).card) });
+      return false;
+    }
+    case 'transformOntoBattlefieldIfCastFromGraveyard': {
+      if (r.entry.kind !== 'spell' || !r.entry.flashback || s.objects[r.entry.id]?.zone !== 'stack') break;
+      const exiled = moveObject(ctx, r.entry.id, 'exile');
+      const owner = (s.objects[exiled] as GameObject).owner;
+      const back = moveObject(ctx, exiled, 'battlefield', { controller: owner, transformed: true });
+      const o = s.objects[back] as GameObject;
+      o.kindCounters = { ...o.kindCounters, finality: 1 };
+      break;
+    }
+    case 'revealTopPermanentToHand': {
+      const top = s.zones.library[controller][0];
+      if (top === undefined) break;
+      const card = (s.objects[top] as GameObject).card;
+      ctx.events.push({ kind: 'revealed', player: controller, card });
+      const permanent = defOf(ctx.reg, card).types.some((t) => t !== 'Instant' && t !== 'Sorcery'); // 110.4a
+      if (permanent) moveObject(ctx, top, 'hand');
+      break;
+    }
+    case 'addMana':
+      for (const m of effect.mana) { s.players[controller].manaPool[m] += 1; ctx.events.push({ kind: 'manaAdded', player: controller, mana: m }); }
+      break;
+    case 'pumpOthers':
+      for (const id of s.zones.battlefield) {
+        if (id === source || (s.objects[id] as GameObject).controller !== controller || !isCreatureOnBattlefield(ctx, id)) continue;
+        s.effects.push({ layer: '7c', affected: id, power: effect.power, toughness: effect.toughness, duration: 'endOfTurn', timestamp: s.nextTimestamp++ });
+        if (effect.grant) untilEndOfTurn(id, effect.grant);
+      }
+      break;
+    case 'becomeCreature':
+      if (onBattlefield(s, source)) s.effects.push({ layer: '4', affected: source, addType: 'Creature', duration: 'endOfTurn', timestamp: s.nextTimestamp++ });
+      break;
     case 'enchantedFights': { // 701.14b: no damage if either is no longer a creature on the battlefield
       const host = s.objects[source]?.attachedTo;
       const other = objectTarget();
@@ -914,6 +1014,13 @@ function enterStep(ctx: Ctx, step: Step): void {
     case 'combatDamage':
       continueCombatDamage(ctx);
       return;
+    case 'main1': // 714.3b: as the precombat main phase begins, its player adds a lore counter to each of their Sagas
+      for (const id of s.zones.battlefield) {
+        const o = s.objects[id] as GameObject;
+        if (o.controller === active && ctx.reg.get(o.card)?.saga) addLore(ctx, id);
+      }
+      givePriority(ctx, active);
+      return;
     case 'end': { // 513.1: "at the beginning of the (next) end step" triggers
       for (const d of s.delayedTriggers.filter((x) => x.on === 'nextEndStep' && !(x.createdTurn === s.turn.number && x.createdDuringEnd))) {
         s.delayedTriggers = s.delayedTriggers.filter((x) => x.id !== d.id);
@@ -939,6 +1046,7 @@ function cleanupRest(ctx: Ctx): void {
   for (const id of s.zones.battlefield) (s.objects[id] as GameObject).damage = 0;
   s.effects = s.effects.filter((e) => e.duration !== 'endOfTurn'); // 514.2
   s.priorityTo = s.turn.active;
+  scanTriggers(ctx);
   const acted = runSBA(ctx);
   if (ctx.blocked) return;
   scanTriggers(ctx);
@@ -1191,6 +1299,7 @@ const RESPONSE_KINDS: Record<PendingDecision['kind'], Response['kind'][]> = {
   chooseTargets: ['chooseTargets'],
   legendRule: ['legendRule'],
   searchLibrary: ['searchLibrary'],
+  surveil: ['surveil'],
 };
 
 /** Applies one player input. Pure from the caller's view: the given state is never modified. */
@@ -1262,6 +1371,17 @@ function apply(ctx: Ctx, pending: PendingDecision, r: Response): void {
       const stackOrder = [...r.order].reverse().map((id) => ({ ...(s.pendingTriggers.find((t) => t.id === id) as (typeof s.pendingTriggers)[number]), ordered: true }));
       s.pendingTriggers = [...s.pendingTriggers.filter((t) => !ids.includes(t.id)), ...stackOrder];
       givePriority(ctx, s.priorityTo ?? s.turn.active);
+      return;
+    }
+    case 'surveil': {
+      const d = pending as Extract<PendingDecision, { kind: 'surveil' }>;
+      const all = [...r.graveyard, ...r.top];
+      if (all.length !== d.cards.length || new Set(all).size !== all.length || !all.every((i) => Number.isInteger(i) && i >= 0 && i < d.cards.length)) fail('Put each surveilled card in the graveyard or back on top, once');
+      const ids = s.zones.library[p].slice(0, d.cards.length);
+      for (const i of r.graveyard) moveObject(ctx, ids[i] as ObjectId, 'graveyard');
+      s.zones.library[p] = [...r.top.map((i) => ids[i] as ObjectId), ...s.zones.library[p].slice(d.cards.length - r.graveyard.length)];
+      ctx.events.push({ kind: 'surveilled', player: p, toGraveyard: r.graveyard.length, toTop: r.top.length });
+      if (continueResolution(ctx)) afterResolution(ctx);
       return;
     }
     case 'searchLibrary': {

@@ -55,11 +55,14 @@ export function parseDeckText(text: string): { main: Record<string, number>; sid
     if (/^sb:\s*/i.test(line)) { line = line.replace(/^sb:\s*/i, ''); into = side; }
     const m = /^(\d+)\s*x?\s+(.+?)(\s+\([A-Za-z0-9]+\)(\s+\S+)?)?$/.exec(line);
     if (!m) { errors.push(`No entiendo la línea: «${raw.trim()}»`); continue; }
-    const name = (m[2] as string).trim();
+    const name = frontName((m[2] as string).trim());
     into[name] = (into[name] ?? 0) + Number(m[1]);
   }
   return { main, side, errors };
 }
+
+/** A double-faced card is listed by its front face ("Esper Origins // Summon: Esper Maduin" → "Esper Origins"), as Arena and MTGO do. */
+export const frontName = (name: string): string => name.split(' // ')[0] ?? name;
 
 export function exportDeckText(d: Deck): string {
   const lines = (c: Record<string, number>) => Object.entries(c).map(([n, k]) => `${String(k)} ${n}`);
@@ -83,7 +86,7 @@ export function validateDeck(d: Deck, reg: CardRegistry): { errors: string[]; un
     if (n > limit && !isBasic(info) && !info?.anyNumber) errors.push(`${name}: ${String(n)} copias; el máximo es ${String(limit)}.`);
     if (d.format !== 'casual' && info && !['legal', 'restricted'].includes(info.legalities[d.format] ?? '')) errors.push(`${name} no es legal en ${d.format}.`);
   }
-  const unplayable = Object.keys(both).filter((name) => { const def = reg.get(name); return !def || def.status === 'unsupported' || !!def.token; });
+  const unplayable = Object.keys(both).filter((name) => { const def = reg.get(name); return !def || def.status === 'unsupported' || !!def.token || !!def.frontFace; });
   return { errors, unplayable };
 }
 
