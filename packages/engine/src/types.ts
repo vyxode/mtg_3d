@@ -25,21 +25,42 @@ export interface ManaCost {
   W?: number; U?: number; B?: number; R?: number; G?: number; C?: number;
 }
 
-export type TargetSpec = 'anyTarget' | 'creature' | 'spell' | 'player';
+export type TargetSpec = 'anyTarget' | 'creature' | 'spell' | 'player'
+  /** "target creature you control" (from the point of view of the spell's or ability's controller). */
+  | 'creatureYouControl'
+  /** "target creature with power 2 or less". */
+  | 'creaturePowerAtMost2';
+
+/** Abilities an effect can grant until end of turn (layer 6). */
+export type GrantedAbility = Keyword | 'cantBeBlocked';
 
 export type Effect =
   | { kind: 'damage'; amount: number; target: number }
   | { kind: 'draw'; amount: number }
   | { kind: 'drawEach'; amount: number }
   | { kind: 'targetDraws'; target: number; amount: number }
-  | { kind: 'mill'; target: number; amount: number }
+  /** 701.17: `'you'` mills the controller of the spell or ability. */
+  | { kind: 'mill'; target: number | 'you'; amount: number }
   | { kind: 'gainLife'; amount: number }
   | { kind: 'counter'; target: number }
   | { kind: 'destroy'; target: number }
   | { kind: 'createToken'; token: string; amount: number }
   /** +1/+1 counters on a target, or on the ability's source ('self'). */
   | { kind: 'addCounters'; target: number | 'self'; amount: number }
-  | { kind: 'pump'; power: number; toughness: number; target: number; duration: 'endOfTurn' };
+  | { kind: 'pump'; power: number; toughness: number; target: number; duration: 'endOfTurn' }
+  /** 701.10d: it gets +X/+0 until end of turn, where X is its power as the effect begins. */
+  | { kind: 'doublePower'; target: number }
+  /** 701.10e: put as many +1/+1 counters on it as it already has. */
+  | { kind: 'doubleCounters'; target: 'self' }
+  /** One target gains an ability until end of turn (layer 6). */
+  | { kind: 'grant'; ability: GrantedAbility; target: number }
+  /** Permanents you control with any of these subtypes gain an ability until end of turn; the set is locked in as it resolves (611.2c). */
+  | { kind: 'grantAll'; ability: GrantedAbility; subtypes: string[] }
+  /**
+   * 701.23: search your library for a basic land card, put it onto the battlefield, then shuffle. Finding nothing is
+   * allowed (701.23b). `untapIfLands`: "then if you control N or more lands, untap that land".
+   */
+  | { kind: 'searchBasicLand'; tapped: boolean; untapIfLands?: number };
 
 export interface ManaAbility {
   cost: 'tap';
@@ -54,7 +75,8 @@ export type Keyword =
 
 /** "When [this] enters" / "When [this] dies" (603.6a, 603.6c with look-back). */
 export interface TriggerDef {
-  on: 'selfEntersBattlefield' | 'selfDies' | 'controllerGainsLife';
+  /** landYouControlEnters = landfall: "whenever a land you control enters". */
+  on: 'selfEntersBattlefield' | 'selfDies' | 'controllerGainsLife' | 'landYouControlEnters';
   targets: TargetSpec[];
   effects: Effect[];
 }
@@ -64,18 +86,18 @@ export interface ActivatedDef {
   /** Shown to players, e.g. "{T}: 1 damage to any target". */
   text: string;
   /** loyalty: +N adds, -N removes loyalty counters; a loyalty ability is sorcery-speed and once per turn (606.3). */
-  cost: { mana?: ManaCost; tap?: boolean; loyalty?: number };
+  cost: { mana?: ManaCost; tap?: boolean; loyalty?: number; sacrifice?: true; exile?: true };
   targets: TargetSpec[];
   effects: Effect[];
 }
 
 /** Static abilities that change characteristics (604, 613). */
-export interface StaticDef {
-  kind: 'anthem';
-  affects: 'creaturesYouControl' | 'otherCreaturesYouControl';
-  power: number;
-  toughness: number;
-}
+export type StaticDef =
+  | { kind: 'anthem'; affects: 'creaturesYouControl' | 'otherCreaturesYouControl'; power: number; toughness: number }
+  /** "You may play an additional land on each of your turns" (305.2). */
+  | { kind: 'extraLandDrop' }
+  /** "You may play lands from your graveyard." */
+  | { kind: 'playLandsFromGraveyard' };
 
 /** 'tested' = has its own scenario test; only tested and implemented cards are playable in strict mode. */
 export type ImplStatus = 'tested' | 'implemented' | 'unsupported';
@@ -100,6 +122,10 @@ export interface CardDef {
   statics?: StaticDef[];
   /** Replacement effects on entering the battlefield (614.1c, 614.12). */
   etb?: { tapped: true } | { tappedUnlessPayLife: number };
+  /** "This creature enters with N +1/+1 counters on it" (614.1c). */
+  entersWithCounters?: number;
+  /** Affinity for a subtype (702.41): costs {1} less for each permanent with it you control. */
+  affinityFor?: string;
   /** Token definitions (111): they cease to exist outside the battlefield. */
   token?: true;
 }
@@ -157,13 +183,18 @@ export interface PendingTrigger {
   ordered: boolean;
 }
 
-export interface ContinuousEffect {
-  layer: '7c';
-  affected: ObjectId;
-  power: number;
-  toughness: number;
-  duration: 'endOfTurn';
-  timestamp: number;
+export type ContinuousEffect =
+  | { layer: '7c'; affected: ObjectId; power: number; toughness: number; duration: 'endOfTurn'; timestamp: number }
+  | { layer: '6'; affected: ObjectId; grant: GrantedAbility; duration: 'endOfTurn'; timestamp: number };
+
+/** A spell or ability partway through resolving: it can stop for a choice (e.g. which card to find) and continue. */
+export interface Resolution {
+  entry: StackEntry;
+  effects: Effect[];
+  targets: Target[];
+  legal: boolean[];
+  /** Index of the next effect to perform. */
+  next: number;
 }
 
 export interface CombatState {
@@ -212,6 +243,7 @@ export interface GameState {
   combat: CombatState | null;
   effects: ContinuousEffect[];
   pendingTriggers: PendingTrigger[];
+  resolving: Resolution | null;
   /** Who receives priority once pending triggers are on the stack (placing them may need decisions first). */
   priorityTo: PlayerId | null;
   pending: PendingDecision | null;
@@ -222,7 +254,8 @@ export interface GameState {
 
 export type LegalAction =
   | { kind: 'playLand'; card: ObjectId }
-  | { kind: 'cast'; card: ObjectId; targetOptions: Target[][] }
+  /** `cost`: what the engine will charge, after reductions such as affinity. */
+  | { kind: 'cast'; card: ObjectId; targetOptions: Target[][]; cost: ManaCost }
   | { kind: 'activateMana'; source: ObjectId }
   | { kind: 'activate'; source: ObjectId; ability: number; targetOptions: Target[][] };
 
@@ -242,7 +275,12 @@ export type PendingDecision =
   /** 603.3d: choose targets as the trigger is put on the stack. */
   | (DecisionBase & { kind: 'chooseTargets'; trigger: string; card: string; targetOptions: Target[][] })
   /** 704.5j: choose the one legendary permanent with this name to keep. */
-  | (DecisionBase & { kind: 'legendRule'; name: string; candidates: ObjectId[] });
+  | (DecisionBase & { kind: 'legendRule'; name: string; candidates: ObjectId[] })
+  /**
+   * 701.23: choose a card found in your library by name, or none. Only the searching player sees the options;
+   * library object ids are never sent, so a search reveals nothing about the library's order.
+   */
+  | (DecisionBase & { kind: 'searchLibrary'; source: string; cards: string[] });
 
 export type Response =
   | { kind: 'chooseStartingPlayer'; first: PlayerId }
@@ -260,7 +298,8 @@ export type Response =
   | { kind: 'discard'; cards: ObjectId[] }
   | { kind: 'orderTriggers'; order: string[] }
   | { kind: 'chooseTargets'; targets: Target[] }
-  | { kind: 'legendRule'; keep: ObjectId };
+  | { kind: 'legendRule'; keep: ObjectId }
+  | { kind: 'searchLibrary'; card: string | null };
 
 /** What a client sends: its answer to the decision with id `decisionId`, or a concession at any time. */
 export type PlayerInput =
@@ -279,6 +318,7 @@ export type GameEvent =
   | { kind: 'activated'; card: string; controller: PlayerId; ability: string }
   | { kind: 'tokenCreated'; id: ObjectId; card: string; controller: PlayerId }
   | { kind: 'countersAdded'; id: ObjectId; amount: number }
+  | { kind: 'searched'; player: PlayerId; found: ObjectId | null }
   | { kind: 'tapped'; id: ObjectId }
   | { kind: 'untapped'; id: ObjectId }
   | { kind: 'manaAdded'; player: PlayerId; mana: ManaType }

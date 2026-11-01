@@ -20,7 +20,7 @@ const STEP_NAMES: Record<Step, string> = {
 const DECISION_NAMES: Record<PendingDecision['kind'], string> = {
   chooseStartingPlayer: 'elegir quién empieza', mulligan: 'decidir el mulligan', bottomCards: 'poner cartas al fondo',
   priority: 'actuar', declareAttackers: 'declarar atacantes', declareBlockers: 'declarar bloqueadores',
-  assignCombatDamage: 'repartir daño', discard: 'descartar', orderTriggers: 'ordenar sus habilidades', chooseTargets: 'elegir objetivos', legendRule: 'aplicar la regla de leyendas',
+  assignCombatDamage: 'repartir daño', discard: 'descartar', orderTriggers: 'ordenar sus habilidades', chooseTargets: 'elegir objetivos', legendRule: 'aplicar la regla de leyendas', searchLibrary: 'buscar en su biblioteca',
 };
 
 interface Props { room: RoomState; update: GameUpdate; onError: (e: string | null) => void }
@@ -215,6 +215,14 @@ function MyDecision({ view, d, nameOf, send, onError }: { view: PlayerView; d: P
         <h3>Regla de leyendas: quédate con un {d.name}</h3>
         <Zone title="Elige cuál conservar" cards={d.candidates.map((id) => view.objects[id]).filter((o): o is VisibleObject => !!o)} onClick={(id) => void send({ kind: 'legendRule', keep: id })} />
       </>);
+    case 'searchLibrary':
+      return (<>
+        <h3>{d.source}: busca en tu biblioteca</h3>
+        <div className="actions">
+          {d.cards.map((card) => <button key={card} onClick={() => void send({ kind: 'searchLibrary', card })}>{card}</button>)}
+        </div>
+        <button className="link" onClick={() => void send({ kind: 'searchLibrary', card: null })}>No coger ninguna</button>
+      </>);
     case 'chooseTargets':
       return (<>
         <h3>{d.card}: elige objetivo</h3>
@@ -325,7 +333,7 @@ const subject = (a: LegalAction) => (a.kind === 'activateMana' || a.kind === 'ac
 function paymentFor(view: PlayerView, legal: LegalAction[], a: Targeted): ObjectId[] | null {
   const sources = legal.flatMap((l) => (l.kind === 'activateMana' ? [l.source] : []));
   const cardOf = (id: ObjectId) => view.objects[id]?.card ?? '';
-  if (a.kind === 'cast') return autopay(view, CARDS, sources, CARDS.get(cardOf(a.card))?.manaCost ?? null);
+  if (a.kind === 'cast') return autopay(view, CARDS, sources, a.cost);
   // A {T} ability cannot tap its own source for mana.
   const ab = CARDS.get(cardOf(a.source))?.activated?.[a.ability];
   return autopay(view, CARDS, ab?.cost.tap ? sources.filter((x) => x !== a.source) : sources, ab?.cost.mana ?? null);
@@ -367,7 +375,7 @@ function Priority({ view, d, nameOf, send, onError }: { view: PlayerView; d: Ext
 
   const usable = usableActions(view, d.legal);
   const label = (a: LegalAction): string[] => {
-    if (a.kind === 'playLand') return [`Jugar ${cardOf(a.card)}`];
+    if (a.kind === 'playLand') return [`Jugar ${cardOf(a.card)}${view.objects[a.card]?.zone === 'graveyard' ? ' desde el cementerio' : ''}`];
     if (a.kind === 'cast') return [`Lanzar ${cardOf(a.card)}`];
     if (a.kind === 'activate') return [`${cardOf(a.source)}: ${CARDS.get(cardOf(a.source))?.activated?.[a.ability]?.text ?? 'activar'}`];
     return [];
@@ -411,6 +419,7 @@ function describe(e: GameEvent, names: Map<ObjectId, string>, nameOf: (p: Player
     case 'triggered': return `Se dispara la habilidad de ${e.card} (${nameOf(e.controller)}).`;
     case 'activated': return `${nameOf(e.controller)} activa una habilidad de ${e.card}.`;
     case 'tokenCreated': return `${nameOf(e.controller)} crea una ficha de ${e.card}.`;
+    case 'searched': return e.found ? `${nameOf(e.player)} busca en su biblioteca y pone ${n(e.found)} en el campo.` : `${nameOf(e.player)} busca en su biblioteca y no coge nada.`;
     case 'playerLost': return `${nameOf(e.player)} pierde (${e.reason === 'conceded' ? 'concede' : e.reason === 'life' ? 'sin vidas' : 'sin cartas'}).`;
     default: return null;
   }

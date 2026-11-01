@@ -63,17 +63,32 @@ Referencia: Comprehensive Rules del 19 de junio de 2026. Cada regla marcada como
 | 115.4 | "Cualquier objetivo" incluye planeswalkers |
 | 701.17 | Moler |
 
+## Hecho (D3a) — `d3a.test.ts`
+
+| Regla | Qué |
+| --- | --- |
+| 603.2, 207.2c | Aterrizaje (landfall): "siempre que una tierra que controlas entre" |
+| 701.23 | Buscar en la biblioteca una tierra básica (por nombre; fallar está permitido) y barajar; la resolución se pausa para la elección |
+| 701.21, 602.1 | Costes de sacrificar o exiliar el propio permanente |
+| 614.1c | Entra con contadores +1/+1 |
+| 701.10d-e | Duplicar fuerza y duplicar contadores |
+| 613 (capa 6) | Ganar habilidades hasta el final del turno (indestructible, "no puede ser bloqueada"), de un objetivo o de un grupo fijado al resolverse (611.2c) |
+| 305.2 | Tierras adicionales por turno; jugar tierras desde el cementerio |
+| 702.41 | Afinidad por un subtipo; la acción legal lleva el coste ya reducido |
+
+Cartas: Fabled Passage, Escape Tunnel, Sazh's Chocobo, Mossborn Hydra, Shared Roots, Icetill Explorer, Sapling Nursery (y su ficha Treefolk). Del mazo Mono-Green Landfall del meta faltan Earthbender Ascension y Ba Sing Se (tierra-bending), Esper Origins (flashback, doble cara, saga), Mightform Harmonizer (warp), Meltstrider's Resolve (auras, luchar), Lumbering Worldwagon (vehículos), Surrak (disparada al ser objetivo), Keen-Eyed Curator y Demolition Field.
+
 ## Atajos conocidos (comentados en el código con `shortcut:`)
 
 - 601.2 se envía como una sola respuesta (objetivos + pago a la vez); se valida en el orden de la regla.
 - El maná genérico se paga con incoloro y luego W, U, B, R, G; el jugador no elige qué maná sobra.
 - Una fuente que ya dejó su zona no tiene palabras clave (sin último dato conocido de características).
 - El daño letal para arrollar no cuenta el daño que otras criaturas asignan en el mismo paso.
-- Solo existe la capa 7c.
+- Solo existen la capa 6 (ganar habilidades) y la 7c; todos los efectos duran hasta el final del turno.
 - Si en una elección de objetivos solo hay una opción legal, el motor la elige solo.
 - La regla de leyendas se aplica tras las demás acciones basadas en estado, no a la vez, porque necesita una elección.
 - Solo existen contadores +1/+1 y de lealtad.
 
-## Pendiente (D2b en adelante)
+## Pendiente (D3b en adelante)
 
-Disparadas al atacar, retardadas y de estado · protección y regeneración · capas 1–7d con dependencias · reemplazo y prevención generales · copias · cartas de varias caras · auras y equipos (704.5m) · costes adicionales y alternativos, X, modos · contadores -1/-1 y otros.
+Warp y lanzar desde el exilio · flashback, cartas de doble cara y sagas · auras, equipos y vehículos (704.5m) · tierra-bending (capa 4) · disparadas al ser objetivo · escudriñar, vigilar · disparadas al atacar, retardadas y de estado · protección y regeneración · capas 1–7d con dependencias · reemplazo y prevención generales · copias · cartas de varias caras · costes adicionales y alternativos, X, modos · contadores -1/-1 y otros.

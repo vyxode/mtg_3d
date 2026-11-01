@@ -140,4 +140,48 @@ export const DEFS: CardDef[] = [
     name: 'Divination', status: 'tested', manaCost: parseManaCost('{2}{U}'), types: ['Sorcery'],
     spell: { targets: [], effects: [{ kind: 'draw', amount: 2 }] },
   },
+
+  // D3a: landfall and library searches (Standard, Mono-Green Landfall). Texts checked against the Oracle.
+  {
+    name: 'Fabled Passage', status: 'tested', manaCost: null, types: ['Land'],
+    activated: [{
+      text: '{T}, sacrificar: busca una tierra básica, entra girada (se endereza si controlas 4+ tierras)',
+      cost: { tap: true, sacrifice: true }, targets: [], effects: [{ kind: 'searchBasicLand', tapped: true, untapIfLands: 4 }],
+    }],
+  },
+  {
+    name: 'Escape Tunnel', status: 'tested', manaCost: null, types: ['Land'],
+    activated: [
+      { text: '{T}, sacrificar: busca una tierra básica, entra girada', cost: { tap: true, sacrifice: true }, targets: [], effects: [{ kind: 'searchBasicLand', tapped: true }] },
+      {
+        text: '{T}, sacrificar: una criatura de fuerza 2 o menos no puede ser bloqueada este turno',
+        cost: { tap: true, sacrifice: true }, targets: ['creaturePowerAtMost2'], effects: [{ kind: 'grant', ability: 'cantBeBlocked', target: 0 }],
+      },
+    ],
+  },
+  creature("Sazh's Chocobo", '{G}', ['Bird'], 0, 1, {
+    triggers: [{ on: 'landYouControlEnters', targets: [], effects: [{ kind: 'addCounters', target: 'self', amount: 1 }] }],
+  }),
+  creature('Mossborn Hydra', '{2}{G}', ['Elemental', 'Hydra'], 0, 0, {
+    keywords: ['Trample'], entersWithCounters: 1,
+    triggers: [{ on: 'landYouControlEnters', targets: [], effects: [{ kind: 'doubleCounters', target: 'self' }] }],
+  }),
+  {
+    name: 'Shared Roots', status: 'tested', manaCost: parseManaCost('{1}{G}'), types: ['Sorcery'], subtypes: ['Lesson'],
+    spell: { targets: [], effects: [{ kind: 'searchBasicLand', tapped: true }] },
+  },
+  creature('Icetill Explorer', '{2}{G}{G}', ['Insect', 'Scout'], 2, 4, {
+    statics: [{ kind: 'extraLandDrop' }, { kind: 'playLandsFromGraveyard' }],
+    triggers: [{ on: 'landYouControlEnters', targets: [], effects: [{ kind: 'mill', target: 'you', amount: 1 }] }],
+  }),
+  {
+    name: 'Sapling Nursery', status: 'tested', manaCost: parseManaCost('{6}{G}{G}'), types: ['Enchantment'], affinityFor: 'Forest',
+    triggers: [{ on: 'landYouControlEnters', targets: [], effects: [{ kind: 'createToken', token: 'Treefolk', amount: 1 }] }],
+    activated: [{
+      text: '{1}{G}, exiliar: los Treefolk y Bosques que controlas ganan indestructible hasta el final del turno',
+      cost: { mana: parseManaCost('{1}{G}'), exile: true }, targets: [], effects: [{ kind: 'grantAll', ability: 'Indestructible', subtypes: ['Treefolk', 'Forest'] }],
+    }],
+  },
+  // shortcut: token definitions are keyed by name; give them distinct keys when two cards make different "Treefolk" tokens.
+  { name: 'Treefolk', status: 'tested', manaCost: null, types: ['Creature'], subtypes: ['Treefolk'], power: 3, toughness: 4, keywords: ['Reach'], token: true },
 ];

@@ -26,6 +26,7 @@ export const responseSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('orderTriggers'), order: z.array(id).max(100) }),
   z.object({ kind: z.literal('chooseTargets'), targets: z.array(target).max(10) }),
   z.object({ kind: z.literal('legendRule'), keep: id }),
+  z.object({ kind: z.literal('searchLibrary'), card: z.string().max(200).nullable() }),
 ]) satisfies z.ZodType<Response>;
 
 const name = z.string().trim().min(1).max(24);

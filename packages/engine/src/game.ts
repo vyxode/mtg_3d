@@ -1,8 +1,8 @@
 import { seedRng, nextInt, shuffle } from './core/rng';
 import { emptyPool, payFromPool, solvePayment } from './mana';
 import type {
-  CardDef, CardRegistry, ContinuousEffect, Effect, GameEvent, GameObject, GameState, Keyword, LegalAction, ManaCost, ManaType, ObjectId,
-  PendingDecision, PlayerId, PlayerInput, Response, Step, StepResult, Target, TargetSpec, ZoneName,
+  CardDef, CardRegistry, Effect, GameEvent, GameObject, GameState, GrantedAbility, Keyword, LegalAction, ManaCost, ManaType, ObjectId,
+  PendingDecision, PlayerId, PlayerInput, Resolution, Response, Step, StepResult, Target, TargetSpec, ZoneName,
 } from './types';
 
 const MAX_HAND_SIZE = 7;
@@ -44,8 +44,10 @@ export function characteristics(s: GameState, reg: CardRegistry, id: ObjectId): 
   const def = defOf(reg, obj.card);
   let power = def.power ?? 0;
   let toughness = def.toughness ?? 0;
+  const keywords = [...(def.keywords ?? [])];
   for (const e of s.effects) {
-    if (e.affected === id) { power += e.power; toughness += e.toughness; }
+    if (e.affected !== id) continue;
+    if (e.layer === '7c') { power += e.power; toughness += e.toughness; } else if (e.grant !== 'cantBeBlocked' && !keywords.includes(e.grant)) keywords.push(e.grant); // layer 6
   }
   if (obj.zone === 'battlefield' && isType(def, 'Creature')) {
     power += obj.counters; toughness += obj.counters;
@@ -53,12 +55,12 @@ export function characteristics(s: GameState, reg: CardRegistry, id: ObjectId): 
       const so = s.objects[sid] as GameObject;
       if (so.controller !== obj.controller) continue;
       for (const st of reg.get(so.card)?.statics ?? []) {
-        if (st.affects === 'otherCreaturesYouControl' && sid === id) continue;
+        if (st.kind !== 'anthem' || (st.affects === 'otherCreaturesYouControl' && sid === id)) continue;
         power += st.power; toughness += st.toughness;
       }
     }
   }
-  return { name: def.name, types: def.types, power, toughness, keywords: def.keywords ?? [] };
+  return { name: def.name, types: def.types, power, toughness, keywords };
 }
 
 const isType = (c: { types: readonly string[] }, t: string): boolean => c.types.includes(t);
@@ -67,6 +69,16 @@ const isCreatureOnBattlefield = (ctx: Ctx, id: ObjectId): boolean =>
   onBattlefield(ctx.s, id) && isType(characteristics(ctx.s, ctx.reg, id), 'Creature');
 const has = (ctx: Ctx, id: ObjectId, kw: Keyword): boolean =>
   ctx.s.objects[id] !== undefined && characteristics(ctx.s, ctx.reg, id).keywords.includes(kw);
+const granted = (ctx: Ctx, id: ObjectId, ability: GrantedAbility): boolean =>
+  ctx.s.effects.some((e) => e.layer === '6' && e.affected === id && e.grant === ability);
+/** Static abilities of permanents `p` controls with this kind. */
+const staticsOf = (ctx: Ctx, p: PlayerId, kind: string): number =>
+  ctx.s.zones.battlefield.reduce((n, id) => {
+    const o = ctx.s.objects[id] as GameObject;
+    return o.controller === p ? n + (ctx.reg.get(o.card)?.statics ?? []).filter((st) => st.kind === kind).length : n;
+  }, 0);
+const controlsWithSubtype = (ctx: Ctx, p: PlayerId, subtype: string): number =>
+  ctx.s.zones.battlefield.filter((id) => (ctx.s.objects[id] as GameObject).controller === p && (ctx.reg.get((ctx.s.objects[id] as GameObject).card)?.subtypes ?? []).includes(subtype)).length;
 
 // ---------- Objects and zones ----------
 
@@ -107,7 +119,10 @@ function moveObject(ctx: Ctx, id: ObjectId, to: ZoneName, opts: { bottom?: boole
     if (to === 'library' && !opts.bottom) toList.unshift(newId);
     else toList.push(newId);
   }
-  if (to === 'battlefield') moved.loyalty = ctx.reg.get(obj.card)?.loyalty ?? 0; // 306.5b
+  if (to === 'battlefield') {
+    moved.loyalty = ctx.reg.get(obj.card)?.loyalty ?? 0; // 306.5b
+    moved.counters = ctx.reg.get(obj.card)?.entersWithCounters ?? 0; // 614.1c
+  }
   const etb = to === 'battlefield' ? ctx.reg.get(obj.card)?.etb : undefined;
   if (etb && 'tapped' in etb) moved.tapped = true; // 614.1c
   if (etb && 'tappedUnlessPayLife' in etb) { // 614.12: the choice is made as it enters
@@ -229,7 +244,18 @@ function scanTriggers(ctx: Ctx): void {
         if (t.on === on) ctx.s.pendingTriggers.push({ id: `t${String(ctx.s.nextId++)}`, card, source, trigger: index, controller, ordered: false });
       });
     };
-    if (e.kind === 'zoneChange' && e.toZone === 'battlefield') add(e.card, e.to, (ctx.s.objects[e.to] as GameObject).controller, 'selfEntersBattlefield');
+    if (e.kind === 'zoneChange' && e.toZone === 'battlefield') {
+      const entered = ctx.s.objects[e.to];
+      if (entered) {
+        add(e.card, e.to, entered.controller, 'selfEntersBattlefield');
+        if (isType(defOf(ctx.reg, e.card), 'Land')) { // landfall: every permanent of that land's controller, the land included
+          for (const id of ctx.s.zones.battlefield) {
+            const o = ctx.s.objects[id] as GameObject;
+            if (o.controller === entered.controller) add(o.card, id, o.controller, 'landYouControlEnters');
+          }
+        }
+      }
+    }
     if (e.kind === 'tokenCreated') add(e.card, e.id, e.controller, 'selfEntersBattlefield');
     if (e.kind === 'zoneChange' && e.fromZone === 'battlefield' && e.toZone === 'graveyard') add(e.card, e.from, e.lastController, 'selfDies');
     if (e.kind === 'lifeChanged' && e.to > e.from) { // "Whenever you gain life" (603.2)
@@ -255,7 +281,7 @@ function placeTriggers(ctx: Ctx): boolean {
     }
     for (const t of mine) {
       const def = defOf(ctx.reg, t.card).triggers?.[t.trigger] ?? fail('Unknown trigger');
-      const options = def.targets.map((spec) => targetOptions(ctx, spec));
+      const options = def.targets.map((spec) => targetOptions(ctx, spec, p));
       if (options.some((o) => o.length === 0)) { // 603.3d: no legal target, the ability is removed
         s.pendingTriggers = s.pendingTriggers.filter((x) => x.id !== t.id);
         continue;
@@ -301,7 +327,7 @@ function canCastSorcerySpeed(ctx: Ctx, p: PlayerId): boolean {
   return t.active === p && isMain(t.step) && ctx.s.stack.length === 0;
 }
 
-function targetOptions(ctx: Ctx, spec: TargetSpec): Target[] {
+function targetOptions(ctx: Ctx, spec: TargetSpec, controller: PlayerId): Target[] {
   const s = ctx.s;
   const creatures = s.zones.battlefield.filter((id) => isCreatureOnBattlefield(ctx, id)).map((id): Target => ({ kind: 'object', id }));
   const players = (['p1', 'p2'] as const).filter((p) => !s.players[p].lost).map((p): Target => ({ kind: 'player', player: p }));
@@ -310,13 +336,15 @@ function targetOptions(ctx: Ctx, spec: TargetSpec): Target[] {
     case 'player': return players;
     case 'anyTarget': return [...players, ...creatures, ...walkers]; // 115.4
     case 'creature': return creatures;
+    case 'creatureYouControl': return creatures.filter((t) => t.kind === 'object' && (s.objects[t.id] as GameObject).controller === controller);
+    case 'creaturePowerAtMost2': return creatures.filter((t) => t.kind === 'object' && characteristics(s, ctx.reg, t.id).power <= 2);
     case 'spell': return s.stack.filter((e) => e.kind === 'spell').map((e): Target => ({ kind: 'object', id: e.id }));
   }
 }
 
-function isLegalTarget(ctx: Ctx, spec: TargetSpec, t: Target, self: ObjectId | null): boolean {
+function isLegalTarget(ctx: Ctx, spec: TargetSpec, t: Target, self: ObjectId | null, controller: PlayerId): boolean {
   if (t.kind === 'object' && t.id === self) return false; // 115.5: a spell can't target itself
-  return targetOptions(ctx, spec).some((o) => sameTarget(o, t));
+  return targetOptions(ctx, spec, controller).some((o) => sameTarget(o, t));
 }
 
 const sameTarget = (a: Target, b: Target): boolean =>
@@ -337,15 +365,19 @@ function legalActions(ctx: Ctx, p: PlayerId): LegalAction[] {
   const s = ctx.s;
   const out: LegalAction[] = [];
   const sorcerySpeed = canCastSorcerySpeed(ctx, p);
+  const canPlayLand = sorcerySpeed && s.turn.landsPlayed < landsAllowed(ctx, p);
   for (const id of s.zones.hand[p]) {
     const def = defOf(ctx.reg, (s.objects[id] as GameObject).card);
     if (isType(def, 'Land')) {
-      if (sorcerySpeed && s.turn.landsPlayed < 1) out.push({ kind: 'playLand', card: id });
+      if (canPlayLand) out.push({ kind: 'playLand', card: id });
       continue;
     }
     if (!isType(def, 'Instant') && !sorcerySpeed) continue;
-    const opts = (def.spell?.targets ?? []).map((spec) => targetOptions(ctx, spec));
-    if (opts.every((o) => o.length > 0)) out.push({ kind: 'cast', card: id, targetOptions: opts });
+    const opts = (def.spell?.targets ?? []).map((spec) => targetOptions(ctx, spec, p));
+    if (opts.every((o) => o.length > 0)) out.push({ kind: 'cast', card: id, targetOptions: opts, cost: costToCast(ctx, p, def) });
+  }
+  if (canPlayLand && staticsOf(ctx, p, 'playLandsFromGraveyard') > 0) {
+    for (const id of s.zones.graveyard[p]) if (isType(defOf(ctx.reg, (s.objects[id] as GameObject).card), 'Land')) out.push({ kind: 'playLand', card: id });
   }
   for (const id of s.zones.battlefield) {
     if (canActivateMana(ctx, p, id)) out.push({ kind: 'activateMana', source: id });
@@ -354,11 +386,21 @@ function legalActions(ctx: Ctx, p: PlayerId): LegalAction[] {
     defOf(ctx.reg, o.card).activated?.forEach((ab, ability) => {
       if (ab.cost.tap && !canTapForCost(ctx, id)) return;
       if (ab.cost.loyalty !== undefined && !canPayLoyalty(ctx, p, id, ab.cost.loyalty)) return;
-      const opts = ab.targets.map((spec) => targetOptions(ctx, spec));
+      const opts = ab.targets.map((spec) => targetOptions(ctx, spec, p));
       if (opts.every((x) => x.length > 0)) out.push({ kind: 'activate', source: id, ability, targetOptions: opts });
     });
   }
   return out;
+}
+
+/** 305.2: one land per turn, plus one for each "additional land" effect. */
+const landsAllowed = (ctx: Ctx, p: PlayerId): number => 1 + staticsOf(ctx, p, 'extraLandDrop');
+
+/** The mana cost after reductions (601.2f): affinity (702.41) reduces only the generic part. */
+function costToCast(ctx: Ctx, p: PlayerId, def: CardDef): ManaCost {
+  const cost = def.manaCost ?? { generic: 0 };
+  if (!def.affinityFor) return cost;
+  return { ...cost, generic: Math.max(0, cost.generic - controlsWithSubtype(ctx, p, def.affinityFor)) };
 }
 
 const manaOptions = (ctx: Ctx, id: ObjectId): ManaType[] =>
@@ -404,7 +446,8 @@ function activate(ctx: Ctx, p: PlayerId, r: Extract<Response, { kind: 'activate'
   if (obj?.zone !== 'battlefield' || obj.controller !== p) fail('You do not control that permanent');
   const ab = defOf(ctx.reg, (obj as GameObject).card).activated?.[r.ability] ?? fail('No such ability');
   if (r.targets.length !== ab.targets.length) fail(`Expected ${String(ab.targets.length)} target(s)`);
-  ab.targets.forEach((spec, i) => { if (!isLegalTarget(ctx, spec, r.targets[i] as Target, null)) fail(`Illegal target #${String(i + 1)}`); });
+  ab.targets.forEach((spec, i) => { if (!isLegalTarget(ctx, spec, r.targets[i] as Target, null, p)) fail(`Illegal target #${String(i + 1)}`); });
+  if ((ab.cost.sacrifice || ab.cost.exile) && r.payment.includes(r.source)) fail('A permanent you sacrifice or exile cannot also pay mana');
   if (ab.cost.tap) {
     if (!canTapForCost(ctx, r.source)) fail('It cannot be tapped to pay this cost');
     if (r.payment.includes(r.source)) fail('The same permanent cannot also tap for mana');
@@ -417,6 +460,8 @@ function activate(ctx: Ctx, p: PlayerId, r: Extract<Response, { kind: 'activate'
     o.loyalty += ab.cost.loyalty;
     o.loyaltyTurn = s.turn.number;
   }
+  if (ab.cost.sacrifice) moveObject(ctx, r.source, 'graveyard'); // 701.21: sacrificing is not destroying
+  if (ab.cost.exile) moveObject(ctx, r.source, 'exile');
   const id = `a${String(s.nextId++)}`;
   s.stack.push({ kind: 'ability', id, card: (obj as GameObject).card, source: r.source, ability: { kind: 'activated', index: r.ability }, controller: p, targets: r.targets });
   ctx.events.push({ kind: 'activated', card: (obj as GameObject).card, controller: p, ability: id });
@@ -429,12 +474,15 @@ function onPass(ctx: Ctx, p: PlayerId): void {
   if (!t.passed.includes(other(p))) { givePriority(ctx, other(p)); return; }
   // 117.4: all players passed in succession
   if (ctx.s.stack.length > 0) {
-    resolveTop(ctx);
-    t.passed = [];
-    givePriority(ctx, t.active); // 117.3b
+    if (resolveTop(ctx)) afterResolution(ctx); // otherwise it waits for a choice made while resolving
   } else {
     endStep(ctx);
   }
+}
+
+function afterResolution(ctx: Ctx): void {
+  ctx.s.turn.passed = [];
+  givePriority(ctx, ctx.s.turn.active); // 117.3b
 }
 
 function afterAction(ctx: Ctx, p: PlayerId): void {
@@ -446,10 +494,11 @@ function afterAction(ctx: Ctx, p: PlayerId): void {
 
 function playLand(ctx: Ctx, p: PlayerId, id: ObjectId, payLife: boolean | undefined): void {
   const obj = ctx.s.objects[id];
-  if (obj?.zone !== 'hand' || obj.owner !== p) fail('That card is not in your hand');
+  const fromGraveyard = obj?.zone === 'graveyard' && staticsOf(ctx, p, 'playLandsFromGraveyard') > 0;
+  if ((obj?.zone !== 'hand' && !fromGraveyard) || obj.owner !== p) fail('You cannot play that card from where it is');
   if (!isType(defOf(ctx.reg, (obj as GameObject).card), 'Land')) fail('Only lands can be played');
   if (!canCastSorcerySpeed(ctx, p)) fail('Lands can only be played in your main phase with an empty stack');
-  if (ctx.s.turn.landsPlayed >= 1) fail('You already played a land this turn');
+  if (ctx.s.turn.landsPlayed >= landsAllowed(ctx, p)) fail('You already played all the lands you can this turn');
   ctx.s.turn.landsPlayed += 1;
   moveObject(ctx, id, 'battlefield', { controller: p, payLife: payLife === true });
   afterAction(ctx, p);
@@ -466,9 +515,9 @@ function cast(ctx: Ctx, p: PlayerId, r: Extract<Response, { kind: 'cast' }>): vo
 
   const specs = def.spell?.targets ?? [];
   if (r.targets.length !== specs.length) fail(`Expected ${String(specs.length)} target(s)`);
-  specs.forEach((spec, i) => { if (!isLegalTarget(ctx, spec, r.targets[i] as Target, null)) fail(`Illegal target #${String(i + 1)}`); });
+  specs.forEach((spec, i) => { if (!isLegalTarget(ctx, spec, r.targets[i] as Target, null, p)) fail(`Illegal target #${String(i + 1)}`); });
 
-  payCost(ctx, p, r.payment, def.manaCost ?? { generic: 0 });
+  payCost(ctx, p, r.payment, costToCast(ctx, p, def));
 
   const spell = moveObject(ctx, r.card, 'stack', { controller: p });
   s.stack.push({ kind: 'spell', id: spell, card: def.name, controller: p, targets: r.targets });
@@ -476,7 +525,8 @@ function cast(ctx: Ctx, p: PlayerId, r: Extract<Response, { kind: 'cast' }>): vo
   afterAction(ctx, p);
 }
 
-function resolveTop(ctx: Ctx): void {
+/** Resolves the top of the stack (608). Returns false if it stopped for a choice; the answer continues it. */
+function resolveTop(ctx: Ctx): boolean {
   const s = ctx.s;
   const entry = s.stack[s.stack.length - 1] ?? fail('Empty stack');
   const def = defOf(ctx.reg, entry.card);
@@ -484,82 +534,144 @@ function resolveTop(ctx: Ctx): void {
   if (entry.kind === 'ability') {
     s.stack.pop();
     const ability = (entry.ability.kind === 'trigger' ? def.triggers?.[entry.ability.index] : def.activated?.[entry.ability.index]) ?? fail('Unknown ability');
-    const legal = ability.targets.map((spec, i) => isLegalTarget(ctx, spec, entry.targets[i] as Target, null));
-    if (ability.targets.length > 0 && legal.every((l) => !l)) { ctx.events.push({ kind: 'fizzled', spell: entry.id }); return; } // 608.2b
-    runEffects(ctx, ability.effects, entry.targets, legal, entry.controller, entry.source);
-    ctx.events.push({ kind: 'resolved', spell: entry.id });
-    return;
+    const legal = ability.targets.map((spec, i) => isLegalTarget(ctx, spec, entry.targets[i] as Target, null, entry.controller));
+    if (ability.targets.length > 0 && legal.every((l) => !l)) { ctx.events.push({ kind: 'fizzled', spell: entry.id }); return true; } // 608.2b
+    s.resolving = { entry, effects: ability.effects, targets: entry.targets, legal, next: 0 };
+    return continueResolution(ctx);
   }
 
   if (!def.spell) { // permanent spell
     moveObject(ctx, entry.id, 'battlefield', { controller: entry.controller });
     ctx.events.push({ kind: 'resolved', spell: entry.id });
-    return;
+    return true;
   }
   const specs = def.spell.targets;
-  const legal = specs.map((spec, i) => isLegalTarget(ctx, spec, entry.targets[i] as Target, entry.id));
+  const legal = specs.map((spec, i) => isLegalTarget(ctx, spec, entry.targets[i] as Target, entry.id, entry.controller));
   if (specs.length > 0 && legal.every((l) => !l)) { // 608.2b
     ctx.events.push({ kind: 'fizzled', spell: entry.id });
     moveObject(ctx, entry.id, 'graveyard');
-    return;
+    return true;
   }
-  runEffects(ctx, def.spell.effects, entry.targets, legal, entry.controller, entry.id);
-  ctx.events.push({ kind: 'resolved', spell: entry.id });
-  if (s.objects[entry.id]?.zone === 'stack') moveObject(ctx, entry.id, 'graveyard');
+  s.resolving = { entry, effects: def.spell.effects, targets: entry.targets, legal, next: 0 };
+  return continueResolution(ctx);
 }
 
-function runEffects(ctx: Ctx, effects: Effect[], targets: Target[], legal: boolean[], controller: PlayerId, source: ObjectId): void {
+/** Performs the remaining effects of the resolving spell or ability; false if one of them needs a choice first. */
+function continueResolution(ctx: Ctx): boolean {
   const s = ctx.s;
-  for (const effect of effects) {
-    const ti = 'target' in effect && typeof effect.target === 'number' ? effect.target : null;
-    if (ti !== null && !legal[ti]) continue; // illegal targets are unaffected
-    const t = ti !== null ? (targets[ti] as Target) : null;
-    switch (effect.kind) {
-      case 'damage': dealDamage(ctx, source, t as Target, effect.amount, false); break;
-      case 'draw': for (let i = 0; i < effect.amount; i++) draw(ctx, controller); break;
-      case 'drawEach': for (const p of [s.turn.active, other(s.turn.active)]) for (let i = 0; i < effect.amount; i++) draw(ctx, p); break; // APNAP
-      case 'targetDraws': for (let i = 0; i < effect.amount; i++) draw(ctx, (t as Extract<Target, { kind: 'player' }>).player); break;
-      case 'mill': {
-        const p = (t as Extract<Target, { kind: 'player' }>).player;
-        for (const id of s.zones.library[p].slice(0, effect.amount)) moveObject(ctx, id, 'graveyard'); // 701.17
-        break;
-      }
-      case 'gainLife': setLife(ctx, controller, s.players[controller].life + effect.amount); break;
-      case 'destroy': { // 701.8: indestructible permanents are not destroyed
-        const id = (t as Extract<Target, { kind: 'object' }>).id;
-        if (!has(ctx, id, 'Indestructible')) moveObject(ctx, id, 'graveyard');
-        break;
-      }
-      case 'createToken':
-        for (let i = 0; i < effect.amount; i++) {
-          const id = newObject(ctx, defOf(ctx.reg, effect.token).name, controller, 'battlefield');
-          s.zones.battlefield.push(id);
-          ctx.events.push({ kind: 'tokenCreated', id, card: effect.token, controller });
-        }
-        break;
-      case 'addCounters': {
-        const id = effect.target === 'self' ? source : (t as Extract<Target, { kind: 'object' }>).id;
-        const o = s.objects[id];
-        if (o?.zone !== 'battlefield') break; // the source left: nothing to put counters on
-        o.counters += effect.amount;
-        ctx.events.push({ kind: 'countersAdded', id, amount: effect.amount });
-        break;
-      }
-      case 'counter': {
-        const target = (t as Extract<Target, { kind: 'object' }>).id;
-        ctx.events.push({ kind: 'countered', spell: target });
-        moveObject(ctx, target, 'graveyard');
-        break;
-      }
-      case 'pump': {
-        const e: ContinuousEffect = {
-          layer: '7c', affected: (t as Extract<Target, { kind: 'object' }>).id,
-          power: effect.power, toughness: effect.toughness, duration: 'endOfTurn', timestamp: s.nextTimestamp++,
-        };
-        s.effects.push(e);
-        break;
-      }
+  const r = s.resolving ?? fail('Nothing is resolving');
+  while (r.next < r.effects.length) {
+    const effect = r.effects[r.next] as Effect;
+    r.next += 1;
+    if (!runEffect(ctx, effect, r)) return false;
+  }
+  s.resolving = null;
+  ctx.events.push({ kind: 'resolved', spell: r.entry.id });
+  if (r.entry.kind === 'spell' && s.objects[r.entry.id]?.zone === 'stack') moveObject(ctx, r.entry.id, 'graveyard'); // 608.2n
+  return true;
+}
+
+const sourceOf = (r: Resolution): ObjectId => (r.entry.kind === 'spell' ? r.entry.id : r.entry.source);
+
+/** One effect of a resolving spell or ability. Returns false when it set a decision (the answer finishes the effect). */
+function runEffect(ctx: Ctx, effect: Effect, r: Resolution): boolean {
+  const s = ctx.s;
+  const controller = r.entry.controller;
+  const source = sourceOf(r);
+  const ti = 'target' in effect && typeof effect.target === 'number' ? effect.target : null;
+  if (ti !== null && !r.legal[ti]) return true; // illegal targets are unaffected (608.2b)
+  const t = ti !== null ? (r.targets[ti] as Target) : null;
+  const objectTarget = () => (t as Extract<Target, { kind: 'object' }>).id;
+  const untilEndOfTurn = (affected: ObjectId, grant: GrantedAbility) => {
+    s.effects.push({ layer: '6', affected, grant, duration: 'endOfTurn', timestamp: s.nextTimestamp++ });
+  };
+  switch (effect.kind) {
+    case 'damage': dealDamage(ctx, source, t as Target, effect.amount, false); break;
+    case 'draw': for (let i = 0; i < effect.amount; i++) draw(ctx, controller); break;
+    case 'drawEach': for (const p of [s.turn.active, other(s.turn.active)]) for (let i = 0; i < effect.amount; i++) draw(ctx, p); break; // APNAP
+    case 'targetDraws': for (let i = 0; i < effect.amount; i++) draw(ctx, (t as Extract<Target, { kind: 'player' }>).player); break;
+    case 'mill': {
+      const p = effect.target === 'you' ? controller : (t as Extract<Target, { kind: 'player' }>).player;
+      for (const id of s.zones.library[p].slice(0, effect.amount)) moveObject(ctx, id, 'graveyard'); // 701.17
+      break;
     }
+    case 'gainLife': setLife(ctx, controller, s.players[controller].life + effect.amount); break;
+    case 'destroy': { // 701.8: indestructible permanents are not destroyed
+      const id = objectTarget();
+      if (!has(ctx, id, 'Indestructible')) moveObject(ctx, id, 'graveyard');
+      break;
+    }
+    case 'createToken':
+      for (let i = 0; i < effect.amount; i++) {
+        const id = newObject(ctx, defOf(ctx.reg, effect.token).name, controller, 'battlefield');
+        s.zones.battlefield.push(id);
+        ctx.events.push({ kind: 'tokenCreated', id, card: effect.token, controller });
+      }
+      break;
+    case 'addCounters': {
+      const id = effect.target === 'self' ? source : objectTarget();
+      const o = s.objects[id];
+      if (o?.zone !== 'battlefield') break; // the source left: nothing to put counters on
+      o.counters += effect.amount;
+      ctx.events.push({ kind: 'countersAdded', id, amount: effect.amount });
+      break;
+    }
+    case 'doubleCounters': {
+      const o = s.objects[source];
+      if (o?.zone !== 'battlefield' || o.counters === 0) break;
+      const amount = o.counters;
+      o.counters += amount;
+      ctx.events.push({ kind: 'countersAdded', id: source, amount });
+      break;
+    }
+    case 'counter': {
+      const target = objectTarget();
+      ctx.events.push({ kind: 'countered', spell: target });
+      moveObject(ctx, target, 'graveyard');
+      break;
+    }
+    case 'pump':
+      s.effects.push({ layer: '7c', affected: objectTarget(), power: effect.power, toughness: effect.toughness, duration: 'endOfTurn', timestamp: s.nextTimestamp++ });
+      break;
+    case 'doublePower': {
+      const id = objectTarget();
+      s.effects.push({ layer: '7c', affected: id, power: characteristics(s, ctx.reg, id).power, toughness: 0, duration: 'endOfTurn', timestamp: s.nextTimestamp++ });
+      break;
+    }
+    case 'grant': untilEndOfTurn(objectTarget(), effect.ability); break;
+    case 'grantAll':
+      for (const id of s.zones.battlefield) {
+        const o = s.objects[id] as GameObject;
+        if (o.controller === controller && (ctx.reg.get(o.card)?.subtypes ?? []).some((st) => effect.subtypes.includes(st))) untilEndOfTurn(id, effect.ability);
+      }
+      break;
+    case 'searchBasicLand': {
+      const cards = [...new Set(s.zones.library[controller].map((id) => (s.objects[id] as GameObject).card))]
+        .filter((card) => defOf(ctx.reg, card).supertypes?.includes('Basic') && isType(defOf(ctx.reg, card), 'Land'));
+      if (cards.length === 0) { finishSearch(ctx, effect, controller, null); break; }
+      setPending(ctx, { kind: 'searchLibrary', player: controller, source: r.entry.card, cards });
+      return false;
+    }
+  }
+  return true;
+}
+
+/** The rest of a library search once the card is chosen (or none): put it onto the battlefield, then shuffle (701.23). */
+function finishSearch(ctx: Ctx, effect: Extract<Effect, { kind: 'searchBasicLand' }>, p: PlayerId, card: string | null): void {
+  let found: ObjectId | null = null;
+  // Copies of a card in a library are indistinguishable, so the choice is a name and any copy is taken.
+  const copy = card === null ? undefined : ctx.s.zones.library[p].find((id) => ctx.s.objects[id]?.card === card);
+  if (copy !== undefined) {
+    found = moveObject(ctx, copy, 'battlefield', { controller: p });
+    const o = ctx.s.objects[found] as GameObject;
+    if (effect.tapped) o.tapped = true;
+  }
+  ctx.events.push({ kind: 'searched', player: p, found });
+  shuffleLibrary(ctx, p);
+  if (found !== null && effect.untapIfLands !== undefined) {
+    const lands = ctx.s.zones.battlefield.filter((id) => (ctx.s.objects[id] as GameObject).controller === p && isType(characteristics(ctx.s, ctx.reg, id), 'Land')).length;
+    const o = ctx.s.objects[found] as GameObject;
+    if (lands >= effect.untapIfLands && o.tapped) { o.tapped = false; ctx.events.push({ kind: 'untapped', id: found }); }
   }
 }
 
@@ -690,6 +802,7 @@ function canAttack(ctx: Ctx, id: ObjectId, active: PlayerId): boolean {
 
 /** 702.9b flying: only creatures with flying or reach (702.17b) can block it. */
 function canBlock(ctx: Ctx, blocker: ObjectId, attacker: ObjectId): boolean {
+  if (granted(ctx, attacker, 'cantBeBlocked')) return false;
   return !has(ctx, attacker, 'Flying') || has(ctx, blocker, 'Flying') || has(ctx, blocker, 'Reach');
 }
 
@@ -824,7 +937,7 @@ export function createGame(opts: NewGameOptions, reg: CardRegistry): StepResult 
     objects: {},
     zones: { library: { p1: [], p2: [] }, hand: { p1: [], p2: [] }, graveyard: { p1: [], p2: [] }, battlefield: [], exile: [] },
     stack: [], turn: { number: 0, active: 'p1', step: 'untap', passed: [], landsPlayed: 0 },
-    combat: null, effects: [], pendingTriggers: [], priorityTo: null, pending: null, result: null,
+    combat: null, effects: [], pendingTriggers: [], resolving: null, priorityTo: null, pending: null, result: null,
   };
   const ctx: Ctx = { s, reg, events: [], scanned: 0 };
   try {
@@ -894,6 +1007,7 @@ const RESPONSE_KINDS: Record<PendingDecision['kind'], Response['kind'][]> = {
   orderTriggers: ['orderTriggers'],
   chooseTargets: ['chooseTargets'],
   legendRule: ['legendRule'],
+  searchLibrary: ['searchLibrary'],
 };
 
 /** Applies one player input. Pure from the caller's view: the given state is never modified. */
@@ -965,6 +1079,16 @@ function apply(ctx: Ctx, pending: PendingDecision, r: Response): void {
       const stackOrder = [...r.order].reverse().map((id) => ({ ...(s.pendingTriggers.find((t) => t.id === id) as (typeof s.pendingTriggers)[number]), ordered: true }));
       s.pendingTriggers = [...s.pendingTriggers.filter((t) => !ids.includes(t.id)), ...stackOrder];
       givePriority(ctx, s.priorityTo ?? s.turn.active);
+      return;
+    }
+    case 'searchLibrary': {
+      const d = pending as Extract<PendingDecision, { kind: 'searchLibrary' }>;
+      if (r.card !== null && !d.cards.includes(r.card)) fail('That card is not one you can find');
+      const res = s.resolving ?? fail('Nothing is resolving');
+      const effect = res.effects[res.next - 1];
+      if (effect?.kind !== 'searchBasicLand') return fail('No search is in progress');
+      finishSearch(ctx, effect, p, r.card);
+      if (continueResolution(ctx)) afterResolution(ctx);
       return;
     }
     case 'chooseTargets': {

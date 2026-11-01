@@ -20,6 +20,7 @@ function randomResponse(s: GameState, rng: RngState): [Response, RngState] {
     }
     case 'assignCombatDamage': return [{ kind: 'assignCombatDamage', assignment: { [p.blockers[0] as ObjectId]: p.amount } }, r];
     case 'legendRule': return [{ kind: 'legendRule', keep: p.candidates[0] as ObjectId }, r];
+    case 'searchLibrary': return [{ kind: 'searchLibrary', card: pick(4) === 0 ? null : (p.cards[pick(p.cards.length)] ?? null) }, r];
     case 'orderTriggers': return [{ kind: 'orderTriggers', order: p.triggers.map((t) => t.id) }, r];
     case 'chooseTargets': return [{ kind: 'chooseTargets', targets: p.targetOptions.map((o) => o[pick(o.length)] as never) }, r];
     case 'priority': {
