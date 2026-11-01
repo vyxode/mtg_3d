@@ -4,39 +4,58 @@ Simulador web de Magic: The Gathering para dos jugadores, con mesa 3D, motor de 
 
 Proyecto de fans, no oficial y sin ánimo de lucro. Magic: The Gathering y sus imágenes son propiedad de Wizards of the Coast. Los datos e imágenes de cartas proceden de Scryfall bajo sus condiciones de uso.
 
-**Diseño completo:** [Análisis técnico (Fase A)](https://claude.ai/artifact/9mMpbxFAsEbEUucPQntZ2U) · decisiones en [`docs/adr/`](docs/adr/) · incidencias en [`docs/issues-log.md`](docs/issues-log.md).
+**Diseño completo:** [Análisis técnico (Fase A)](https://claude.ai/artifact/9mMpbxFAsEbEUucPQntZ2U) · decisiones en [`docs/adr/`](docs/adr/) · reglas cubiertas en [`docs/rules-coverage.md`](docs/rules-coverage.md) · incidencias en [`docs/issues-log.md`](docs/issues-log.md).
 
 ## Estado
 
 | Fase | Estado |
 | --- | --- |
 | A — Base del proyecto | Hecho |
-| D1 — Núcleo del motor | Hecho: turnos, prioridad, pila, combate básico, SBA, mulligan; 16 cartas ([cobertura](docs/rules-coverage.md)) |
-| Resto | Pendiente |
+| D1 — Núcleo del motor | Hecho: turnos, prioridad, pila, combate básico, acciones basadas en estado, mulligan; 21 cartas |
+| E1 — Esqueleto jugable | Hecho: salas con código, servidor autoritativo, proyección por jugador, reconexión, auto-pase, interfaz 2D de depuración |
+| B — Biblioteca (Scryfall) | Imágenes por nombre; la importación completa a PostgreSQL queda pendiente |
+| D2, C, F, D3, G, H | Pendiente |
 
-## Requisitos
+## Jugar ya (interfaz 2D de depuración)
 
-- Node.js 22 (`.nvmrc`) y pnpm 10 (`corepack enable`)
-- Docker, para PostgreSQL
-
-## Puesta en marcha
+Requisitos: Node.js 22 (`.nvmrc`) y pnpm 10 (`corepack enable`).
 
 ```sh
 pnpm install
-cp .env.example .env   # cambia la contraseña
-pnpm db:up             # PostgreSQL 16 en localhost
-pnpm check             # tipos + lint + tests
+pnpm build      # compila la web
+pnpm start      # servidor de juego + web en http://localhost:3001
+```
+
+1. Abre `http://localhost:3001`, escribe tu nombre y pulsa **Crear sala**.
+2. Pasa el código de 6 letras a tu amigo; él entra en la misma dirección, escribe el código y pulsa **Unirse**.
+3. Cada uno elige uno de los dos mazos predefinidos de 60 cartas.
+
+Para jugar desde otro ordenador, tu amigo necesita llegar a tu puerto 3001: misma red local (usa tu IP en vez de `localhost`) o un túnel como Cloudflare Tunnel. El despliegue definitivo es la fase H.
+
+El servidor pasa la prioridad por ti cuando no puedes hacer nada útil; marca **Control total** para recibirla en todos los pasos.
+
+## Desarrollo
+
+```sh
+pnpm dev        # servidor (3001) + web con recarga en caliente (5173)
+pnpm check      # tipos + lint + tests unitarios, de reglas e integración
+pnpm e2e        # dos navegadores Chrome reales juegan el primer turno
+cp .env.example .env && pnpm db:up   # PostgreSQL 16 (se usará en la fase B2)
 ```
 
 ## Estructura
 
 ```
-apps/        aplicaciones (web, server) — se crean en sus fases
+apps/
+  server/    Node + Socket.IO: salas, autoridad de la partida, proyecciones; sirve la web compilada
+  web/       React + Vite: vestíbulo, sala y mesa 2D de depuración (la mesa 3D llega en la fase F)
 packages/
   engine/    motor de reglas puro: sin React, Three.js, red, base de datos ni APIs de Node
-  cards/     definiciones de cartas (DSL) y tests de reglas con cartas reales
+  cards/     definiciones de cartas (DSL), mazos predefinidos y tests de reglas con cartas reales
+  protocol/  mensajes cliente-servidor validados con Zod
+e2e/         pruebas con dos navegadores
 infra/       docker-compose
-docs/        decisiones (ADR) e incidencias
+docs/        decisiones (ADR), cobertura de reglas e incidencias
 ```
 
 La pureza del motor no es una convención: ESLint rechaza cualquier import prohibido en `packages/engine`.

@@ -4,6 +4,7 @@ import { Server, type Socket } from 'socket.io';
 import { clientMessages, type Ack, type ClientMessage, type ClientToServer, type ServerToClient } from '@mtg3d/protocol';
 import type { PlayerId } from '@mtg3d/engine';
 import { Rooms, type Outbox, type Room } from './rooms';
+import { staticHandler } from './static';
 
 type GameSocket = Socket<ClientToServer, ServerToClient>;
 
@@ -12,8 +13,9 @@ export interface RunningServer {
   close(): Promise<void>;
 }
 
-export async function startServer(port = 0, corsOrigin: string[] = []): Promise<RunningServer> {
-  const http = createHttpServer((_req, res) => { res.writeHead(404).end(); });
+export async function startServer(port = 0, corsOrigin: string[] = [], webDir: string | null = null): Promise<RunningServer> {
+  const serve = webDir ? staticHandler(webDir) : null;
+  const http = createHttpServer((req, res) => { if (serve) void serve(req, res); else res.writeHead(404).end(); });
   const io = new Server<ClientToServer, ServerToClient>(http, { cors: { origin: corsOrigin } });
   const rooms = new Rooms();
 
