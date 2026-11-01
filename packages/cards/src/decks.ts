@@ -39,6 +39,7 @@ export function validateCasualDeck(deck: readonly string[], reg: CardRegistry): 
   for (const [name, n] of counts) {
     const def = reg.get(name);
     if (!def || def.status === 'unsupported') { errors.push(`${name} todavía no está implementada.`); continue; }
+    if (def.token) { errors.push(`${name} es una ficha y no puede ir en un mazo.`); continue; }
     if (n > 4 && !def.supertypes?.includes('Basic')) errors.push(`${name}: ${String(n)} copias; el máximo es 4.`);
   }
   return errors;

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { CARDS } from '@mtg3d/cards';
-import type { GameEvent, LegalAction, ObjectId, PendingDecision, PlayerId, PlayerView, Response, Step, Target, VisibleObject } from '@mtg3d/engine';
+import type { GameEvent, LegalAction, ManaType, ObjectId, PendingDecision, PlayerId, PlayerView, Response, Step, Target, VisibleObject } from '@mtg3d/engine';
 import type { GameUpdate, RoomState } from '@mtg3d/protocol';
 import { autopay } from './autopay';
 import { ask, cardImage } from './net';
@@ -14,7 +14,7 @@ const STEP_NAMES: Record<Step, string> = {
 const DECISION_NAMES: Record<PendingDecision['kind'], string> = {
   chooseStartingPlayer: 'elegir quién empieza', mulligan: 'decidir el mulligan', bottomCards: 'poner cartas al fondo',
   priority: 'actuar', declareAttackers: 'declarar atacantes', declareBlockers: 'declarar bloqueadores',
-  assignCombatDamage: 'repartir daño', discard: 'descartar', orderTriggers: 'ordenar sus habilidades', chooseTargets: 'elegir objetivos',
+  assignCombatDamage: 'repartir daño', discard: 'descartar', orderTriggers: 'ordenar sus habilidades', chooseTargets: 'elegir objetivos', legendRule: 'aplicar la regla de leyendas',
 };
 
 interface Props { room: RoomState; update: GameUpdate; onError: (e: string | null) => void }
@@ -195,6 +195,11 @@ function MyDecision({ view, d, nameOf, send, onError }: { view: PlayerView; d: P
       return <Priority view={view} d={d} nameOf={nameOf} send={send} onError={onError} />;
     case 'orderTriggers':
       return <OrderTriggers d={d} send={send} />;
+    case 'legendRule':
+      return (<>
+        <h3>Regla de leyendas: quédate con un {d.name}</h3>
+        <Zone title="Elige cuál conservar" cards={d.candidates.map((id) => view.objects[id]).filter((o): o is VisibleObject => !!o)} onClick={(id) => void send({ kind: 'legendRule', keep: id })} />
+      </>);
     case 'chooseTargets':
       return (<>
         <h3>{d.card}: elige objetivo</h3>
@@ -275,43 +280,61 @@ function DamageSplit({ view, d, send }: { view: PlayerView; d: Extract<PendingDe
   </>);
 }
 
+type Targeted = Extract<LegalAction, { kind: 'cast' | 'activate' }>;
+
 function Priority({ view, d, nameOf, send, onError }: { view: PlayerView; d: Extract<PendingDecision, { kind: 'priority' }>; nameOf: (p: PlayerId) => string; send: (r: Response) => Promise<void>; onError: (e: string | null) => void }) {
-  const [casting, setCasting] = useState<Extract<LegalAction, { kind: 'cast' }> | null>(null);
+  const [pending, setPending] = useState<Targeted | null>(null);
   const sources = useMemo(() => d.legal.flatMap((a) => (a.kind === 'activateMana' ? [a.source] : [])), [d.legal]);
-  const affordable = (a: LegalAction) => a.kind !== 'cast' || autopay(view, CARDS, sources, CARDS.get(view.objects[a.card]?.card ?? '')?.manaCost ?? null) !== null;
-  const actionsFor = (id: ObjectId) => d.legal.filter((a) => (('card' in a && a.card === id) || ('source' in a && a.source === id)) && affordable(a));
+  const cardOf = (id: ObjectId) => view.objects[id]?.card ?? '';
+  const subject = (a: LegalAction) => (a.kind === 'activateMana' || a.kind === 'activate' ? a.source : a.card);
 
-  const finishCast = (action: Extract<LegalAction, { kind: 'cast' }>, targets: Target[]) => {
-    const card = view.objects[action.card]?.card ?? '';
-    const payment = autopay(view, CARDS, sources, CARDS.get(card)?.manaCost ?? null);
-    if (!payment) { onError(`No tienes maná suficiente para ${card}.`); setCasting(null); return; }
-    void send({ kind: 'cast', card: action.card, targets, payment });
+  /** Mana cost and the sources allowed to pay it (a {T} ability cannot tap its own source for mana). */
+  const costOf = (a: Targeted) => {
+    if (a.kind === 'cast') return { cost: CARDS.get(cardOf(a.card))?.manaCost ?? null, from: sources };
+    const ab = CARDS.get(cardOf(a.source))?.activated?.[a.ability];
+    return { cost: ab?.cost.mana ?? null, from: ab?.cost.tap ? sources.filter((x) => x !== a.source) : sources };
+  };
+  const payment = (a: Targeted) => { const c = costOf(a); return autopay(view, CARDS, c.from, c.cost); };
+
+  const finish = (a: Targeted, targets: Target[]) => {
+    const pay = payment(a);
+    if (!pay) { onError(`No tienes maná suficiente para ${cardOf(subject(a))}.`); return; }
+    void send(a.kind === 'cast' ? { kind: 'cast', card: a.card, targets, payment: pay } : { kind: 'activate', source: a.source, ability: a.ability, targets, payment: pay });
   };
 
-  const choose = (a: LegalAction) => {
-    if (a.kind === 'playLand') void send({ kind: 'playLand', card: a.card });
-    else if (a.kind === 'activateMana') void send({ kind: 'activateMana', source: a.source });
-    else if (a.targetOptions.length === 0) finishCast(a, []);
-    else setCasting(a);
+  const choose = (a: LegalAction, mana?: ManaType) => {
+    if (a.kind === 'playLand') {
+      const etb = CARDS.get(cardOf(a.card))?.etb;
+      const payLife = !!etb && 'tappedUnlessPayLife' in etb && confirm(`¿Pagar ${String(etb.tappedUnlessPayLife)} vidas para que ${cardOf(a.card)} entre enderezada?`);
+      void send({ kind: 'playLand', card: a.card, payLife });
+    } else if (a.kind === 'activateMana') void send({ kind: 'activateMana', source: a.source, mana });
+    else if (a.targetOptions.length === 0) finish(a, []);
+    else setPending(a);
   };
 
-  if (casting) {
+  if (pending) {
     return (<>
-      <h3>{view.objects[casting.card]?.card}: elige objetivo</h3>
-      <TargetPicker options={casting.targetOptions} view={view} nameOf={nameOf}
-        onDone={(targets) => { setCasting(null); finishCast(casting, targets); }} onCancel={() => { setCasting(null); }} />
+      <h3>{cardOf(subject(pending))}: elige objetivo</h3>
+      <TargetPicker options={pending.targetOptions} view={view} nameOf={nameOf}
+        onDone={(targets) => { setPending(null); finish(pending, targets); }} onCancel={() => { setPending(null); }} />
     </>);
   }
 
-  const playable = [...view.zones.hand, ...view.zones.battlefield].filter((id) => actionsFor(id).length > 0);
+  const usable = d.legal.filter((a) => a.kind === 'playLand' || a.kind === 'activateMana' || payment(a) !== null);
+  const label = (a: LegalAction): string[] => {
+    if (a.kind === 'playLand') return [`Jugar ${cardOf(a.card)}`];
+    if (a.kind === 'cast') return [`Lanzar ${cardOf(a.card)}`];
+    if (a.kind === 'activate') return [`${cardOf(a.source)}: ${CARDS.get(cardOf(a.source))?.activated?.[a.ability]?.text ?? 'activar'}`];
+    return [];
+  };
   return (<>
     <h3>Tienes prioridad</h3>
     <div className="actions">
-      {playable.map((id) => actionsFor(id).map((a) => (
-        <button key={`${a.kind}-${id}`} onClick={() => { choose(a); }}>
-          {a.kind === 'playLand' ? 'Jugar' : a.kind === 'cast' ? 'Lanzar' : 'Girar'} {view.objects[id]?.card}
-        </button>
-      )))}
+      {usable.map((a) => a.kind === 'activateMana'
+        ? (CARDS.get(cardOf(a.source))?.manaAbilities?.[0]?.produce ?? []).map((m) => (
+          <button key={`mana-${a.source}-${m}`} onClick={() => { choose(a, m); }}>Girar {cardOf(a.source)} ({m})</button>
+        ))
+        : label(a).map((text) => <button key={`${a.kind}-${subject(a)}-${text}`} onClick={() => { choose(a); }}>{text}</button>))}
     </div>
     <button className="primary" onClick={() => void send({ kind: 'pass' })}>{view.stack.length ? 'Pasar (resolver)' : 'Pasar'}</button>
   </>);
@@ -341,6 +364,8 @@ function describe(e: GameEvent, names: Map<ObjectId, string>, nameOf: (p: Player
     case 'blockersDeclared': return e.blocks.length ? `Bloqueos: ${e.blocks.map((b) => `${n(b.blocker)} → ${n(b.attacker)}`).join(', ')}.` : null;
     case 'mulligan': return `${nameOf(e.player)} hace mulligan (${String(e.count)}).`;
     case 'triggered': return `Se dispara la habilidad de ${e.card} (${nameOf(e.controller)}).`;
+    case 'activated': return `${nameOf(e.controller)} activa una habilidad de ${e.card}.`;
+    case 'tokenCreated': return `${nameOf(e.controller)} crea una ficha de ${e.card}.`;
     case 'playerLost': return `${nameOf(e.player)} pierde (${e.reason === 'conceded' ? 'concede' : e.reason === 'life' ? 'sin vidas' : 'sin cartas'}).`;
     default: return null;
   }

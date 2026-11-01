@@ -42,3 +42,37 @@ export function payFromPool(pool: ManaPool, cost: ManaCost): ManaPool | null {
   }
   return generic === 0 ? left : null;
 }
+
+/**
+ * Chooses which sources to tap, and for which color, so that pool + produced mana pays `cost`.
+ * Sources are tried in the given order (put lands first); depth-first search with backtracking,
+ * so it finds a payment whenever one exists. Returns the sources actually needed, or null.
+ */
+export function solvePayment(pool: ManaPool, sources: { id: string; produce: ManaType[] }[], cost: ManaCost): { id: string; mana: ManaType }[] | null {
+  const need: Record<ManaType, number> = { W: cost.W ?? 0, U: cost.U ?? 0, B: cost.B ?? 0, R: cost.R ?? 0, G: cost.G ?? 0, C: cost.C ?? 0 };
+  let generic = cost.generic;
+  const left = { ...pool };
+  for (const t of [...COLORS, 'C'] as ManaType[]) { const u = Math.min(left[t], need[t]); left[t] -= u; need[t] -= u; }
+  generic = Math.max(0, generic - Object.values(left).reduce((a, b) => a + b, 0));
+
+  const chosen: { id: string; mana: ManaType }[] = [];
+  const done = () => generic === 0 && Object.values(need).every((n) => n === 0);
+  const dfs = (i: number): boolean => {
+    if (done()) return true;
+    const src = sources[i];
+    if (!src) return false;
+    for (const m of src.produce) { // use it for a colored symbol it can pay
+      if (need[m] === 0) continue;
+      need[m]--; chosen.push({ id: src.id, mana: m });
+      if (dfs(i + 1)) return true;
+      need[m]++; chosen.pop();
+    }
+    if (generic > 0) { // or for generic
+      generic--; chosen.push({ id: src.id, mana: src.produce[0] as ManaType });
+      if (dfs(i + 1)) return true;
+      generic++; chosen.pop();
+    }
+    return dfs(i + 1); // or leave it untapped
+  };
+  return dfs(0) ? chosen : null;
+}

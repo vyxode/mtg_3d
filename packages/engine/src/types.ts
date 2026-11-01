@@ -32,11 +32,16 @@ export type Effect =
   | { kind: 'draw'; amount: number }
   | { kind: 'gainLife'; amount: number }
   | { kind: 'counter'; target: number }
+  | { kind: 'destroy'; target: number }
+  | { kind: 'createToken'; token: string; amount: number }
+  /** +1/+1 counters on a target, or on the ability's source ('self'). */
+  | { kind: 'addCounters'; target: number | 'self'; amount: number }
   | { kind: 'pump'; power: number; toughness: number; target: number; duration: 'endOfTurn' };
 
 export interface ManaAbility {
   cost: 'tap';
-  produce: ManaType;
+  /** One mana of any of these types (a dual land lists two). */
+  produce: ManaType[];
 }
 
 /** Keyword abilities implemented by the engine (rule 702). */
@@ -46,9 +51,26 @@ export type Keyword =
 
 /** "When [this] enters" / "When [this] dies" (603.6a, 603.6c with look-back). */
 export interface TriggerDef {
-  on: 'selfEntersBattlefield' | 'selfDies';
+  on: 'selfEntersBattlefield' | 'selfDies' | 'controllerGainsLife';
   targets: TargetSpec[];
   effects: Effect[];
+}
+
+/** "[Cost]: [Effect]" (602). */
+export interface ActivatedDef {
+  /** Shown to players, e.g. "{T}: 1 damage to any target". */
+  text: string;
+  cost: { mana?: ManaCost; tap?: boolean };
+  targets: TargetSpec[];
+  effects: Effect[];
+}
+
+/** Static abilities that change characteristics (604, 613). */
+export interface StaticDef {
+  kind: 'anthem';
+  affects: 'creaturesYouControl' | 'otherCreaturesYouControl';
+  power: number;
+  toughness: number;
 }
 
 /** 'tested' = has its own scenario test; only tested and implemented cards are playable in strict mode. */
@@ -68,6 +90,12 @@ export interface CardDef {
   manaAbilities?: ManaAbility[];
   keywords?: Keyword[];
   triggers?: TriggerDef[];
+  activated?: ActivatedDef[];
+  statics?: StaticDef[];
+  /** Replacement effects on entering the battlefield (614.1c, 614.12). */
+  etb?: { tapped: true } | { tappedUnlessPayLife: number };
+  /** Token definitions (111): they cease to exist outside the battlefield. */
+  token?: true;
 }
 
 export type CardRegistry = ReadonlyMap<string, CardDef>;
@@ -96,6 +124,8 @@ export interface GameObject {
   summoningSick: boolean;
   /** 704.5h: dealt damage by a source with deathtouch since SBAs were last checked. */
   deathtouchDamage: boolean;
+  /** shortcut: only +1/+1 counters exist; becomes a record of counter kinds when -1/-1 and others arrive. */
+  counters: number;
   timestamp: number;
 }
 
@@ -105,7 +135,7 @@ export type StackEntry =
   /** A spell: `id` is the card object in the stack zone. */
   | { kind: 'spell'; id: ObjectId; card: string; controller: PlayerId; targets: Target[] }
   /** A triggered ability: not an object; `source` may already have left its zone (look-back). */
-  | { kind: 'ability'; id: string; card: string; source: ObjectId; trigger: number; controller: PlayerId; targets: Target[] };
+  | { kind: 'ability'; id: string; card: string; source: ObjectId; ability: { kind: 'trigger' | 'activated'; index: number }; controller: PlayerId; targets: Target[] };
 
 /** A triggered ability waiting to be put on the stack the next time a player would receive priority (603.3). */
 export interface PendingTrigger {
@@ -183,7 +213,8 @@ export interface GameState {
 export type LegalAction =
   | { kind: 'playLand'; card: ObjectId }
   | { kind: 'cast'; card: ObjectId; targetOptions: Target[][] }
-  | { kind: 'activateMana'; source: ObjectId };
+  | { kind: 'activateMana'; source: ObjectId }
+  | { kind: 'activate'; source: ObjectId; ability: number; targetOptions: Target[][] };
 
 type DecisionBase = { id: number; player: PlayerId };
 
@@ -199,7 +230,9 @@ export type PendingDecision =
   /** 603.3b: order your simultaneous triggers; `order` in the response is the order they will resolve. */
   | (DecisionBase & { kind: 'orderTriggers'; triggers: { id: string; card: string }[] })
   /** 603.3d: choose targets as the trigger is put on the stack. */
-  | (DecisionBase & { kind: 'chooseTargets'; trigger: string; card: string; targetOptions: Target[][] });
+  | (DecisionBase & { kind: 'chooseTargets'; trigger: string; card: string; targetOptions: Target[][] })
+  /** 704.5j: choose the one legendary permanent with this name to keep. */
+  | (DecisionBase & { kind: 'legendRule'; name: string; candidates: ObjectId[] });
 
 export type Response =
   | { kind: 'chooseStartingPlayer'; first: PlayerId }
@@ -207,15 +240,17 @@ export type Response =
   | { kind: 'mulligan' }
   | { kind: 'bottomCards'; cards: ObjectId[] }
   | { kind: 'pass' }
-  | { kind: 'playLand'; card: ObjectId }
+  | { kind: 'playLand'; card: ObjectId; payLife?: boolean | undefined }
   | { kind: 'cast'; card: ObjectId; targets: Target[]; payment: ObjectId[] }
-  | { kind: 'activateMana'; source: ObjectId }
+  | { kind: 'activateMana'; source: ObjectId; mana?: ManaType | undefined }
+  | { kind: 'activate'; source: ObjectId; ability: number; targets: Target[]; payment: ObjectId[] }
   | { kind: 'declareAttackers'; attackers: ObjectId[] }
   | { kind: 'declareBlockers'; blocks: { blocker: ObjectId; attacker: ObjectId }[] }
   | { kind: 'assignCombatDamage'; assignment: Record<string, number> }
   | { kind: 'discard'; cards: ObjectId[] }
   | { kind: 'orderTriggers'; order: string[] }
-  | { kind: 'chooseTargets'; targets: Target[] };
+  | { kind: 'chooseTargets'; targets: Target[] }
+  | { kind: 'legendRule'; keep: ObjectId };
 
 /** What a client sends: its answer to the decision with id `decisionId`, or a concession at any time. */
 export type PlayerInput =
@@ -231,6 +266,9 @@ export type GameEvent =
   | { kind: 'drew'; player: PlayerId; card: ObjectId }
   | { kind: 'zoneChange'; from: ObjectId; to: ObjectId; card: string; fromZone: ZoneName; toZone: ZoneName; owner: PlayerId; lastController: PlayerId }
   | { kind: 'triggered'; card: string; controller: PlayerId; ability: string }
+  | { kind: 'activated'; card: string; controller: PlayerId; ability: string }
+  | { kind: 'tokenCreated'; id: ObjectId; card: string; controller: PlayerId }
+  | { kind: 'countersAdded'; id: ObjectId; amount: number }
   | { kind: 'tapped'; id: ObjectId }
   | { kind: 'untapped'; id: ObjectId }
   | { kind: 'manaAdded'; player: PlayerId; mana: ManaType }

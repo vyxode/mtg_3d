@@ -19,15 +19,17 @@ function randomResponse(s: GameState, rng: RngState): [Response, RngState] {
       return [{ kind: 'declareBlockers', blocks }, r];
     }
     case 'assignCombatDamage': return [{ kind: 'assignCombatDamage', assignment: { [p.blockers[0] as ObjectId]: p.amount } }, r];
+    case 'legendRule': return [{ kind: 'legendRule', keep: p.candidates[0] as ObjectId }, r];
     case 'orderTriggers': return [{ kind: 'orderTriggers', order: p.triggers.map((t) => t.id) }, r];
     case 'chooseTargets': return [{ kind: 'chooseTargets', targets: p.targetOptions.map((o) => o[pick(o.length)] as never) }, r];
     case 'priority': {
       if (p.legal.length === 0 || pick(10) < 4) return [{ kind: 'pass' }, r];
       const a = p.legal[pick(p.legal.length)];
       if (!a) return [{ kind: 'pass' }, r];
-      if (a.kind === 'playLand') return [{ kind: 'playLand', card: a.card }, r];
       if (a.kind === 'activateMana') return [{ kind: 'activateMana', source: a.source }, r];
+      if (a.kind === 'playLand') return [{ kind: 'playLand', card: a.card, payLife: pick(2) === 0 }, r];
       const sources = p.legal.flatMap((l) => (l.kind === 'activateMana' ? [l.source] : []));
+      if (a.kind === 'activate') return [{ kind: 'activate', source: a.source, ability: a.ability, targets: a.targetOptions.map((o) => o[pick(o.length)] as never), payment: sources.filter((x) => x !== a.source) }, r];
       return [{ kind: 'cast', card: a.card, targets: a.targetOptions.map((o) => o[pick(o.length)] as never), payment: sources }, r];
     }
   }
@@ -36,7 +38,7 @@ function randomResponse(s: GameState, rng: RngState): [Response, RngState] {
 function randomDeck(rng: RngState): [string[], RngState] {
   let r = rng;
   const lands = DEFS.filter((d) => d.types.includes('Land')).map((d) => d.name);
-  const spells = DEFS.filter((d) => !d.types.includes('Land')).map((d) => d.name);
+  const spells = DEFS.filter((d) => !d.types.includes('Land') && !d.token).map((d) => d.name);
   const deck: string[] = [];
   for (let i = 0; i < 40; i++) {
     const pool = i < 17 ? lands : spells;
@@ -48,7 +50,7 @@ function randomDeck(rng: RngState): [string[], RngState] {
 }
 
 function countOwned(s: GameState, p: PlayerId): number {
-  return Object.values(s.objects).filter((o) => o.owner === p).length;
+  return Object.values(s.objects).filter((o) => o.owner === p && !CARDS.get(o.card)?.token).length;
 }
 
 /** No id of a card hidden from `viewer` (opponent's hand, any library) may appear in what the viewer receives. */

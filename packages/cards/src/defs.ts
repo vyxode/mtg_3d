@@ -2,13 +2,19 @@ import { parseManaCost, type CardDef, type ManaType } from '@mtg3d/engine';
 
 const basic = (name: string, subtype: string, produce: ManaType): CardDef => ({
   name, status: 'tested', manaCost: null, types: ['Land'], supertypes: ['Basic'], subtypes: [subtype],
-  manaAbilities: [{ cost: 'tap', produce }], // 305.6: intrinsic mana ability of basic land types
+  manaAbilities: [{ cost: 'tap', produce: [produce] }], // 305.6: intrinsic mana ability of basic land types
 });
 
 // 'tested' means the card has its own scenario test, or it is a template with no rules text of its own
 // (basic land, vanilla creature) whose template is tested.
 const vanilla = (name: string, cost: string, subtypes: string[], power: number, toughness: number): CardDef => ({
   name, status: 'tested', manaCost: parseManaCost(cost), types: ['Creature'], subtypes, power, toughness,
+});
+
+/** Shock lands: "({T}: Add {X} or {Y}.) As this land enters, you may pay 2 life. If you don't, it enters tapped." */
+const shock = (name: string, types: [string, string], produce: [ManaType, ManaType]): CardDef => ({
+  name, status: 'tested', manaCost: null, types: ['Land'], subtypes: types,
+  manaAbilities: [{ cost: 'tap', produce }], etb: { tappedUnlessPayLife: 2 },
 });
 
 const creature = (name: string, cost: string, subtypes: string[], power: number, toughness: number, extra: Partial<CardDef>): CardDef => ({
@@ -36,7 +42,7 @@ export const DEFS: CardDef[] = [
   vanilla('Ironroot Treefolk', '{4}{G}', ['Treefolk'], 3, 5),
   {
     ...vanilla('Llanowar Elves', '{G}', ['Elf', 'Druid'], 1, 1),
-    manaAbilities: [{ cost: 'tap', produce: 'G' }],
+    manaAbilities: [{ cost: 'tap', produce: ['G'] }],
   },
 
   // Keyword abilities (702)
@@ -67,6 +73,42 @@ export const DEFS: CardDef[] = [
     keywords: ['Flying'],
     triggers: [{ on: 'selfEntersBattlefield', targets: [], effects: [{ kind: 'gainLife', amount: 1 }, { kind: 'draw', amount: 1 }] }],
   }),
+
+  // Statics, activated abilities, tokens, counters, destroy, legend rule (D2b)
+  {
+    name: 'Glorious Anthem', status: 'tested', manaCost: parseManaCost('{1}{W}{W}'), types: ['Enchantment'],
+    statics: [{ kind: 'anthem', affects: 'creaturesYouControl', power: 1, toughness: 1 }],
+  },
+  creature('Benalish Marshal', '{W}{W}{W}', ['Human', 'Knight'], 3, 3, {
+    statics: [{ kind: 'anthem', affects: 'otherCreaturesYouControl', power: 1, toughness: 1 }],
+  }),
+  creature('Prodigal Pyromancer', '{2}{R}', ['Human', 'Wizard'], 1, 1, {
+    activated: [{ text: '{T}: 1 de daño a cualquier objetivo', cost: { tap: true }, targets: ['anyTarget'], effects: [{ kind: 'damage', amount: 1, target: 0 }] }],
+  }),
+  creature("Ajani's Pridemate", '{1}{W}', ['Cat', 'Soldier'], 2, 2, {
+    triggers: [{ on: 'controllerGainsLife', targets: [], effects: [{ kind: 'addCounters', target: 'self', amount: 1 }] }],
+  }),
+  creature('Isamaru, Hound of Konda', '{W}', ['Dog'], 2, 2, { supertypes: ['Legendary'] }),
+  {
+    name: 'Murder', status: 'tested', manaCost: parseManaCost('{1}{B}{B}'), types: ['Instant'],
+    spell: { targets: ['creature'], effects: [{ kind: 'destroy', target: 0 }] },
+  },
+  {
+    name: 'Raise the Alarm', status: 'tested', manaCost: parseManaCost('{1}{W}'), types: ['Instant'],
+    spell: { targets: [], effects: [{ kind: 'createToken', token: 'Soldier', amount: 2 }] },
+  },
+  { name: 'Soldier', status: 'tested', manaCost: null, types: ['Creature'], subtypes: ['Soldier'], power: 1, toughness: 1, token: true },
+
+  shock('Hallowed Fountain', ['Plains', 'Island'], ['W', 'U']),
+  shock('Watery Grave', ['Island', 'Swamp'], ['U', 'B']),
+  shock('Blood Crypt', ['Swamp', 'Mountain'], ['B', 'R']),
+  shock('Stomping Ground', ['Mountain', 'Forest'], ['R', 'G']),
+  shock('Temple Garden', ['Forest', 'Plains'], ['G', 'W']),
+  shock('Godless Shrine', ['Plains', 'Swamp'], ['W', 'B']),
+  shock('Steam Vents', ['Island', 'Mountain'], ['U', 'R']),
+  shock('Overgrown Tomb', ['Swamp', 'Forest'], ['B', 'G']),
+  shock('Sacred Foundry', ['Mountain', 'Plains'], ['R', 'W']),
+  shock('Breeding Pool', ['Forest', 'Island'], ['G', 'U']),
 
   {
     name: 'Lightning Bolt', status: 'tested', manaCost: parseManaCost('{R}'), types: ['Instant'],

@@ -1,7 +1,7 @@
 import { seedRng, nextInt, shuffle } from './core/rng';
-import { emptyPool, payFromPool } from './mana';
+import { emptyPool, payFromPool, solvePayment } from './mana';
 import type {
-  CardDef, CardRegistry, ContinuousEffect, Effect, GameEvent, GameObject, GameState, Keyword, LegalAction, ObjectId,
+  CardDef, CardRegistry, ContinuousEffect, Effect, GameEvent, GameObject, GameState, Keyword, LegalAction, ManaCost, ManaType, ObjectId,
   PendingDecision, PlayerId, PlayerInput, Response, Step, StepResult, Target, TargetSpec, ZoneName,
 } from './types';
 
@@ -16,6 +16,8 @@ interface Ctx {
   events: GameEvent[];
   /** Index of the first event not yet checked for triggers. */
   scanned: number;
+  /** Set when an SBA needs a player's choice (legend rule): priority waits for it. */
+  blocked?: boolean;
 }
 
 const other = (p: PlayerId): PlayerId => (p === 'p1' ? 'p2' : 'p1');
@@ -45,6 +47,17 @@ export function characteristics(s: GameState, reg: CardRegistry, id: ObjectId): 
   for (const e of s.effects) {
     if (e.affected === id) { power += e.power; toughness += e.toughness; }
   }
+  if (obj.zone === 'battlefield' && isType(def, 'Creature')) {
+    power += obj.counters; toughness += obj.counters;
+    for (const sid of s.zones.battlefield) { // static anthems (layer 7c), recomputed every time
+      const so = s.objects[sid] as GameObject;
+      if (so.controller !== obj.controller) continue;
+      for (const st of reg.get(so.card)?.statics ?? []) {
+        if (st.affects === 'otherCreaturesYouControl' && sid === id) continue;
+        power += st.power; toughness += st.toughness;
+      }
+    }
+  }
   return { name: def.name, types: def.types, power, toughness, keywords: def.keywords ?? [] };
 }
 
@@ -61,7 +74,7 @@ function newObject(ctx: Ctx, card: string, owner: PlayerId, zone: ZoneName): Obj
   const id = `o${String(ctx.s.nextId++)}`;
   ctx.s.objects[id] = {
     id, card, owner, controller: owner, zone,
-    tapped: false, damage: 0, summoningSick: true, deathtouchDamage: false, timestamp: ctx.s.nextTimestamp++,
+    tapped: false, damage: 0, summoningSick: true, deathtouchDamage: false, counters: 0, timestamp: ctx.s.nextTimestamp++,
   };
   return id;
 }
@@ -78,7 +91,7 @@ function zoneList(s: GameState, zone: ZoneName, owner: PlayerId): ObjectId[] | n
  * Moves an object to another zone. Per rule 400.7 it becomes a new object with a new id.
  * The zoneChange event carries what look-back triggers need (card, last controller).
  */
-function moveObject(ctx: Ctx, id: ObjectId, to: ZoneName, opts: { bottom?: boolean; controller?: PlayerId } = {}): ObjectId {
+function moveObject(ctx: Ctx, id: ObjectId, to: ZoneName, opts: { bottom?: boolean; controller?: PlayerId; payLife?: boolean } = {}): ObjectId {
   const s = ctx.s;
   const obj = s.objects[id] ?? fail(`Unknown object ${id}`);
   const fromList = zoneList(s, obj.zone, obj.owner);
@@ -93,6 +106,12 @@ function moveObject(ctx: Ctx, id: ObjectId, to: ZoneName, opts: { bottom?: boole
   if (toList) {
     if (to === 'library' && !opts.bottom) toList.unshift(newId);
     else toList.push(newId);
+  }
+  const etb = to === 'battlefield' ? ctx.reg.get(obj.card)?.etb : undefined;
+  if (etb && 'tapped' in etb) moved.tapped = true; // 614.1c
+  if (etb && 'tappedUnlessPayLife' in etb) { // 614.12: the choice is made as it enters
+    if (opts.payLife) setLife(ctx, moved.controller, s.players[moved.controller].life - etb.tappedUnlessPayLife);
+    else moved.tapped = true;
   }
   ctx.events.push({ kind: 'zoneChange', from: id, to: newId, card: obj.card, fromZone: obj.zone, toZone: to, owner: obj.owner, lastController: obj.controller });
   return newId;
@@ -124,6 +143,7 @@ function tap(ctx: Ctx, id: ObjectId): void {
 }
 
 function setPending(ctx: Ctx, d: DistributiveOmit<PendingDecision, 'id'>): void {
+  if (d.kind === 'legendRule') ctx.blocked = true;
   ctx.s.pending = { ...d, id: ctx.s.nextDecisionId++ };
 }
 
@@ -147,7 +167,19 @@ function runSBA(ctx: Ctx): boolean {
       else if (!c.keywords.includes('Indestructible') && (o.damage >= c.toughness || o.deathtouchDamage)) toGraveyard.push(id); // 704.5g, 704.5h
     }
     for (const o of Object.values(s.objects)) o.deathtouchDamage = false; // 704.5h looks only since the last check
-    if (losers.length === 0 && toGraveyard.length === 0) break;
+    const vanished = Object.values(s.objects).filter((o) => o.zone !== 'battlefield' && ctx.reg.get(o.card)?.token); // 704.5d
+    for (const o of vanished) {
+      const list = zoneList(s, o.zone, o.owner);
+      if (list) list.splice(list.indexOf(o.id), 1);
+      Reflect.deleteProperty(s.objects, o.id);
+    }
+    if (losers.length === 0 && toGraveyard.length === 0) {
+      if (vanished.length > 0) { any = true; continue; }
+      // shortcut: the legend rule runs after the other SBAs instead of simultaneously, because it needs a choice.
+      const legend = findLegendViolation(ctx);
+      if (legend) { setPending(ctx, { kind: 'legendRule', player: legend.player, name: legend.name, candidates: legend.ids }); return true; }
+      break;
+    }
     any = true;
     for (const p of losers) {
       s.players[p].lost = true;
@@ -157,6 +189,21 @@ function runSBA(ctx: Ctx): boolean {
   }
   checkGameOver(ctx);
   return any;
+}
+
+/** 704.5j: two or more legendary permanents with the same name controlled by one player. */
+function findLegendViolation(ctx: Ctx): { player: PlayerId; name: string; ids: ObjectId[] } | null {
+  const groups = new Map<string, ObjectId[]>();
+  for (const id of ctx.s.zones.battlefield) {
+    const o = ctx.s.objects[id] as GameObject;
+    if (!ctx.reg.get(o.card)?.supertypes?.includes('Legendary')) continue;
+    const key = `${o.controller}|${o.card}`;
+    groups.set(key, [...(groups.get(key) ?? []), id]);
+  }
+  for (const [key, ids] of groups) {
+    if (ids.length > 1) { const [player, name] = key.split('|') as [PlayerId, string]; return { player, name, ids }; }
+  }
+  return null;
 }
 
 function checkGameOver(ctx: Ctx): void {
@@ -175,17 +222,20 @@ function checkGameOver(ctx: Ctx): void {
 function scanTriggers(ctx: Ctx): void {
   for (; ctx.scanned < ctx.events.length; ctx.scanned++) {
     const e = ctx.events[ctx.scanned] as GameEvent;
-    if (e.kind !== 'zoneChange') continue;
-    const triggers = ctx.reg.get(e.card)?.triggers ?? [];
-    triggers.forEach((t, index) => {
-      const enters = t.on === 'selfEntersBattlefield' && e.toZone === 'battlefield';
-      const dies = t.on === 'selfDies' && e.fromZone === 'battlefield' && e.toZone === 'graveyard';
-      if (!enters && !dies) return;
-      ctx.s.pendingTriggers.push({
-        id: `t${String(ctx.s.nextId++)}`, card: e.card, source: enters ? e.to : e.from, trigger: index,
-        controller: enters ? (ctx.s.objects[e.to] as GameObject).controller : e.lastController, ordered: false,
+    const add = (card: string, source: ObjectId, controller: PlayerId, on: string) => {
+      (ctx.reg.get(card)?.triggers ?? []).forEach((t, index) => {
+        if (t.on === on) ctx.s.pendingTriggers.push({ id: `t${String(ctx.s.nextId++)}`, card, source, trigger: index, controller, ordered: false });
       });
-    });
+    };
+    if (e.kind === 'zoneChange' && e.toZone === 'battlefield') add(e.card, e.to, (ctx.s.objects[e.to] as GameObject).controller, 'selfEntersBattlefield');
+    if (e.kind === 'tokenCreated') add(e.card, e.id, e.controller, 'selfEntersBattlefield');
+    if (e.kind === 'zoneChange' && e.fromZone === 'battlefield' && e.toZone === 'graveyard') add(e.card, e.from, e.lastController, 'selfDies');
+    if (e.kind === 'lifeChanged' && e.to > e.from) { // "Whenever you gain life" (603.2)
+      for (const id of ctx.s.zones.battlefield) {
+        const o = ctx.s.objects[id] as GameObject;
+        if (o.controller === e.player) add(o.card, id, e.player, 'controllerGainsLife');
+      }
+    }
   }
 }
 
@@ -222,7 +272,7 @@ function stackTrigger(ctx: Ctx, triggerId: string, targets: Target[]): void {
   const s = ctx.s;
   const t = s.pendingTriggers.find((x) => x.id === triggerId) ?? fail('Unknown trigger');
   s.pendingTriggers = s.pendingTriggers.filter((x) => x.id !== triggerId);
-  s.stack.push({ kind: 'ability', id: t.id, card: t.card, source: t.source, trigger: t.trigger, controller: t.controller, targets });
+  s.stack.push({ kind: 'ability', id: t.id, card: t.card, source: t.source, ability: { kind: 'trigger', index: t.trigger }, controller: t.controller, targets });
   ctx.events.push({ kind: 'triggered', card: t.card, controller: t.controller, ability: t.id });
 }
 
@@ -233,7 +283,7 @@ function givePriority(ctx: Ctx, p: PlayerId): void {
   ctx.s.priorityTo = p;
   for (;;) {
     runSBA(ctx);
-    if (ctx.s.result) return;
+    if (ctx.s.result || ctx.blocked) return;
     scanTriggers(ctx);
     if (ctx.s.pendingTriggers.length === 0) break;
     if (!placeTriggers(ctx)) return; // a decision is pending; givePriority resumes after it
@@ -293,16 +343,67 @@ function legalActions(ctx: Ctx, p: PlayerId): LegalAction[] {
     const opts = (def.spell?.targets ?? []).map((spec) => targetOptions(ctx, spec));
     if (opts.every((o) => o.length > 0)) out.push({ kind: 'cast', card: id, targetOptions: opts });
   }
-  for (const id of s.zones.battlefield) if (canActivateMana(ctx, p, id)) out.push({ kind: 'activateMana', source: id });
+  for (const id of s.zones.battlefield) {
+    if (canActivateMana(ctx, p, id)) out.push({ kind: 'activateMana', source: id });
+    const o = s.objects[id] as GameObject;
+    if (o.controller !== p) continue;
+    defOf(ctx.reg, o.card).activated?.forEach((ab, ability) => {
+      if (ab.cost.tap && !canTapForCost(ctx, id)) return;
+      const opts = ab.targets.map((spec) => targetOptions(ctx, spec));
+      if (opts.every((x) => x.length > 0)) out.push({ kind: 'activate', source: id, ability, targetOptions: opts });
+    });
+  }
   return out;
 }
 
-function activateMana(ctx: Ctx, p: PlayerId, id: ObjectId): void {
+const manaOptions = (ctx: Ctx, id: ObjectId): ManaType[] =>
+  defOf(ctx.reg, (ctx.s.objects[id] as GameObject).card).manaAbilities?.[0]?.produce ?? [];
+
+function activateMana(ctx: Ctx, p: PlayerId, id: ObjectId, mana?: ManaType): void {
   if (!canActivateMana(ctx, p, id)) fail(`Cannot activate a mana ability of ${id}`);
-  const ability = defOf(ctx.reg, (ctx.s.objects[id] as GameObject).card).manaAbilities?.[0] ?? fail('No mana ability');
+  const options = manaOptions(ctx, id);
+  const m = mana ?? options[0] ?? fail('No mana ability');
+  if (!options.includes(m)) fail(`That source cannot produce ${m}`);
   tap(ctx, id);
-  ctx.s.players[p].manaPool[ability.produce] += 1;
-  ctx.events.push({ kind: 'manaAdded', player: p, mana: ability.produce });
+  ctx.s.players[p].manaPool[m] += 1;
+  ctx.events.push({ kind: 'manaAdded', player: p, mana: m });
+}
+
+/** 601.2g-h: activates the given mana sources (choosing colors that work), then pays the cost from the pool. */
+function payCost(ctx: Ctx, p: PlayerId, payment: ObjectId[], cost: ManaCost): void {
+  if (new Set(payment).size !== payment.length) fail('Duplicate mana source');
+  const sources = payment.map((id) => {
+    if (!canActivateMana(ctx, p, id)) fail(`Cannot activate a mana ability of ${id}`);
+    return { id, produce: manaOptions(ctx, id) };
+  });
+  const plan = solvePayment(ctx.s.players[p].manaPool, sources, cost) ?? fail('Not enough mana');
+  for (const src of sources) activateMana(ctx, p, src.id, plan.find((x) => x.id === src.id)?.mana);
+  ctx.s.players[p].manaPool = payFromPool(ctx.s.players[p].manaPool, cost) ?? fail('Not enough mana');
+}
+
+/** Can the {T} in a cost be paid? 302.6 applies to creatures. */
+const canTapForCost = (ctx: Ctx, id: ObjectId): boolean => {
+  const o = ctx.s.objects[id] as GameObject;
+  return !o.tapped && !(isType(defOf(ctx.reg, o.card), 'Creature') && isSick(ctx, id));
+};
+
+function activate(ctx: Ctx, p: PlayerId, r: Extract<Response, { kind: 'activate' }>): void {
+  const s = ctx.s;
+  const obj = s.objects[r.source];
+  if (obj?.zone !== 'battlefield' || obj.controller !== p) fail('You do not control that permanent');
+  const ab = defOf(ctx.reg, (obj as GameObject).card).activated?.[r.ability] ?? fail('No such ability');
+  if (r.targets.length !== ab.targets.length) fail(`Expected ${String(ab.targets.length)} target(s)`);
+  ab.targets.forEach((spec, i) => { if (!isLegalTarget(ctx, spec, r.targets[i] as Target, null)) fail(`Illegal target #${String(i + 1)}`); });
+  if (ab.cost.tap) {
+    if (!canTapForCost(ctx, r.source)) fail('It cannot be tapped to pay this cost');
+    if (r.payment.includes(r.source)) fail('The same permanent cannot also tap for mana');
+  }
+  payCost(ctx, p, r.payment, ab.cost.mana ?? { generic: 0 });
+  if (ab.cost.tap) tap(ctx, r.source);
+  const id = `a${String(s.nextId++)}`;
+  s.stack.push({ kind: 'ability', id, card: (obj as GameObject).card, source: r.source, ability: { kind: 'activated', index: r.ability }, controller: p, targets: r.targets });
+  ctx.events.push({ kind: 'activated', card: (obj as GameObject).card, controller: p, ability: id });
+  afterAction(ctx, p);
 }
 
 function onPass(ctx: Ctx, p: PlayerId): void {
@@ -326,14 +427,14 @@ function afterAction(ctx: Ctx, p: PlayerId): void {
 
 // ---------- Casting (601.2) and resolution (608) ----------
 
-function playLand(ctx: Ctx, p: PlayerId, id: ObjectId): void {
+function playLand(ctx: Ctx, p: PlayerId, id: ObjectId, payLife: boolean | undefined): void {
   const obj = ctx.s.objects[id];
   if (obj?.zone !== 'hand' || obj.owner !== p) fail('That card is not in your hand');
   if (!isType(defOf(ctx.reg, (obj as GameObject).card), 'Land')) fail('Only lands can be played');
   if (!canCastSorcerySpeed(ctx, p)) fail('Lands can only be played in your main phase with an empty stack');
   if (ctx.s.turn.landsPlayed >= 1) fail('You already played a land this turn');
   ctx.s.turn.landsPlayed += 1;
-  moveObject(ctx, id, 'battlefield', { controller: p });
+  moveObject(ctx, id, 'battlefield', { controller: p, payLife: payLife === true });
   afterAction(ctx, p);
 }
 
@@ -350,10 +451,7 @@ function cast(ctx: Ctx, p: PlayerId, r: Extract<Response, { kind: 'cast' }>): vo
   if (r.targets.length !== specs.length) fail(`Expected ${String(specs.length)} target(s)`);
   specs.forEach((spec, i) => { if (!isLegalTarget(ctx, spec, r.targets[i] as Target, null)) fail(`Illegal target #${String(i + 1)}`); });
 
-  if (new Set(r.payment).size !== r.payment.length) fail('Duplicate mana source');
-  for (const src of r.payment) activateMana(ctx, p, src);
-  const left = payFromPool(s.players[p].manaPool, def.manaCost ?? { generic: 0 }) ?? fail('Not enough mana');
-  s.players[p].manaPool = left;
+  payCost(ctx, p, r.payment, def.manaCost ?? { generic: 0 });
 
   const spell = moveObject(ctx, r.card, 'stack', { controller: p });
   s.stack.push({ kind: 'spell', id: spell, card: def.name, controller: p, targets: r.targets });
@@ -368,7 +466,7 @@ function resolveTop(ctx: Ctx): void {
 
   if (entry.kind === 'ability') {
     s.stack.pop();
-    const ability = def.triggers?.[entry.trigger] ?? fail('Unknown trigger');
+    const ability = (entry.ability.kind === 'trigger' ? def.triggers?.[entry.ability.index] : def.activated?.[entry.ability.index]) ?? fail('Unknown ability');
     const legal = ability.targets.map((spec, i) => isLegalTarget(ctx, spec, entry.targets[i] as Target, null));
     if (ability.targets.length > 0 && legal.every((l) => !l)) { ctx.events.push({ kind: 'fizzled', spell: entry.id }); return; } // 608.2b
     runEffects(ctx, ability.effects, entry.targets, legal, entry.controller, entry.source);
@@ -396,12 +494,33 @@ function resolveTop(ctx: Ctx): void {
 function runEffects(ctx: Ctx, effects: Effect[], targets: Target[], legal: boolean[], controller: PlayerId, source: ObjectId): void {
   const s = ctx.s;
   for (const effect of effects) {
-    if ('target' in effect && !legal[effect.target]) continue; // illegal targets are unaffected
-    const t = 'target' in effect ? (targets[effect.target] as Target) : null;
+    const ti = 'target' in effect && typeof effect.target === 'number' ? effect.target : null;
+    if (ti !== null && !legal[ti]) continue; // illegal targets are unaffected
+    const t = ti !== null ? (targets[ti] as Target) : null;
     switch (effect.kind) {
       case 'damage': dealDamage(ctx, source, t as Target, effect.amount, false); break;
       case 'draw': for (let i = 0; i < effect.amount; i++) draw(ctx, controller); break;
       case 'gainLife': setLife(ctx, controller, s.players[controller].life + effect.amount); break;
+      case 'destroy': { // 701.8: indestructible permanents are not destroyed
+        const id = (t as Extract<Target, { kind: 'object' }>).id;
+        if (!has(ctx, id, 'Indestructible')) moveObject(ctx, id, 'graveyard');
+        break;
+      }
+      case 'createToken':
+        for (let i = 0; i < effect.amount; i++) {
+          const id = newObject(ctx, defOf(ctx.reg, effect.token).name, controller, 'battlefield');
+          s.zones.battlefield.push(id);
+          ctx.events.push({ kind: 'tokenCreated', id, card: effect.token, controller });
+        }
+        break;
+      case 'addCounters': {
+        const id = effect.target === 'self' ? source : (t as Extract<Target, { kind: 'object' }>).id;
+        const o = s.objects[id];
+        if (o?.zone !== 'battlefield') break; // the source left: nothing to put counters on
+        o.counters += effect.amount;
+        ctx.events.push({ kind: 'countersAdded', id, amount: effect.amount });
+        break;
+      }
       case 'counter': {
         const target = (t as Extract<Target, { kind: 'object' }>).id;
         ctx.events.push({ kind: 'countered', spell: target });
@@ -499,7 +618,9 @@ function cleanupRest(ctx: Ctx): void {
   const s = ctx.s;
   for (const id of s.zones.battlefield) (s.objects[id] as GameObject).damage = 0;
   s.effects = []; // shortcut: every effect today lasts until end of turn; filter by duration when others exist.
+  s.priorityTo = s.turn.active;
   const acted = runSBA(ctx);
+  if (ctx.blocked) return;
   scanTriggers(ctx);
   if (acted || s.pendingTriggers.length > 0) { givePriority(ctx, s.turn.active); return; }
   if (!s.result) nextTurn(ctx);
@@ -732,13 +853,14 @@ const RESPONSE_KINDS: Record<PendingDecision['kind'], Response['kind'][]> = {
   chooseStartingPlayer: ['chooseStartingPlayer'],
   mulligan: ['keep', 'mulligan'],
   bottomCards: ['bottomCards'],
-  priority: ['pass', 'playLand', 'cast', 'activateMana'],
+  priority: ['pass', 'playLand', 'cast', 'activateMana', 'activate'],
   declareAttackers: ['declareAttackers'],
   declareBlockers: ['declareBlockers'],
   assignCombatDamage: ['assignCombatDamage'],
   discard: ['discard'],
   orderTriggers: ['orderTriggers'],
   chooseTargets: ['chooseTargets'],
+  legendRule: ['legendRule'],
 };
 
 /** Applies one player input. Pure from the caller's view: the given state is never modified. */
@@ -782,9 +904,17 @@ function apply(ctx: Ctx, pending: PendingDecision, r: Response): void {
       return;
     }
     case 'pass': onPass(ctx, p); return;
-    case 'playLand': playLand(ctx, p, r.card); return;
+    case 'playLand': playLand(ctx, p, r.card, r.payLife); return;
     case 'cast': cast(ctx, p, r); return;
-    case 'activateMana': activateMana(ctx, p, r.source); afterAction(ctx, p); return;
+    case 'activateMana': activateMana(ctx, p, r.source, r.mana); afterAction(ctx, p); return;
+    case 'activate': activate(ctx, p, r); return;
+    case 'legendRule': {
+      const d = pending as Extract<PendingDecision, { kind: 'legendRule' }>;
+      if (!d.candidates.includes(r.keep)) fail('Choose one of the legendary permanents');
+      for (const id of d.candidates) if (id !== r.keep) moveObject(ctx, id, 'graveyard');
+      givePriority(ctx, s.priorityTo ?? s.turn.active);
+      return;
+    }
     case 'declareAttackers': declareAttackers(ctx, r.attackers); return;
     case 'declareBlockers': declareBlockers(ctx, r.blocks); return;
     case 'assignCombatDamage': assignCombatDamage(ctx, r.assignment); return;
