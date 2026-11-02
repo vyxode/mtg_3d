@@ -13,13 +13,13 @@ test('two friends create a room, choose decks and play the first turn', async ({
   const errors: string[] = [];
   ana.on('pageerror', (e) => { errors.push(e.message); });
 
-  await ana.goto('/');
+  await ana.goto('./');
   await ana.getByLabel('Tu nombre').fill('Ana');
   await ana.getByRole('button', { name: 'Crear sala' }).click();
   const code = (await ana.locator('code.big').textContent())?.trim() ?? '';
   expect(code).toMatch(/^[A-Z0-9]{6}$/);
 
-  await beto.goto('/');
+  await beto.goto('./');
   await beto.getByLabel('Tu nombre').fill('Beto');
   await beto.getByLabel('Código de invitación').fill(code);
   await beto.getByRole('button', { name: 'Unirse' }).click();

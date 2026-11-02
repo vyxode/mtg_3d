@@ -22,6 +22,8 @@ jobs:
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
+    outputs:
+      page_url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -40,3 +42,24 @@ jobs:
           path: apps/web/dist
       - id: deployment
         uses: actions/deploy-pages@v4
+
+  # Two browsers play the first turn on the published site, through WebRTC, like two friends would.
+  smoke:
+    needs: deploy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: npx playwright test -c playwright.p2p.config.ts
+        env:
+          PAGES_URL: ${{ needs.deploy.outputs.page_url }}
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: pages-smoke
+          path: test-results/
