@@ -390,3 +390,84 @@ kbd { font: .72rem var(--sans); opacity: .7; margin-left: 6px; border: 1px solid
   .game.mode-3d .hud-cameras { top: auto; left: 12px; bottom: 76px; }
   .game.mode-3d .hud-preview { top: 170px; right: auto; left: 12px; width: 260px; }
 }
+
+/* ---------- HUD, second pass: medallions, announcer, options ---------- */
+.playerbar { gap: 12px; }
+.playerbar .who { display: flex; flex-direction: column; line-height: 1.15; min-width: 0; }
+.playerbar .who b { font: 700 1.1rem var(--serif); }
+.playerbar .counts { display: flex; gap: 10px; font: .85rem var(--sans); color: var(--parchment-dim); }
+.playerbar .life {
+  position: relative; display: grid; place-items: center; flex: none;
+  width: 54px; height: 54px; border-radius: 50%; min-width: 0; text-align: center;
+  font: 700 1.6rem/1 var(--serif); font-variant-numeric: lining-nums tabular-nums;
+  background: radial-gradient(circle at 35% 30%, #2c5248, #10241f 70%);
+  border: 2px solid var(--line); box-shadow: inset 0 2px 6px rgba(0, 0, 0, .45);
+}
+.playerbar .life::after { content: none; }
+.playerbar.active .life { border-color: var(--brass); box-shadow: 0 0 0 3px rgba(212, 162, 76, .25), inset 0 2px 6px rgba(0, 0, 0, .45); }
+.playerbar.active { box-shadow: none; border-color: var(--brass-deep); }
+.delta {
+  position: absolute; top: -6px; right: -18px; font: 700 1.1rem var(--sans); pointer-events: none;
+  animation: life-float 1.4s ease-out forwards;
+}
+.delta.down { color: #ff8a6e; }
+.delta.up { color: #8fe39e; }
+@keyframes life-float { from { opacity: 1; transform: translateY(0); } to { opacity: 0; transform: translateY(-26px); } }
+
+.announcer {
+  position: absolute; z-index: 4; left: 50%; top: 32%; transform: translate(-50%, -50%); margin: 0; pointer-events: none;
+  padding: 10px 22px; border-radius: 999px; background: rgba(12, 28, 24, .9); border: 1px solid rgba(239, 230, 210, .18);
+  font: 500 1.05rem var(--sans); color: var(--parchment); box-shadow: 0 12px 30px rgba(0, 0, 0, .4);
+  animation: announce 2.6s ease-out forwards;
+}
+.announcer.big {
+  font: 700 2.6rem var(--serif); background: none; border: none; box-shadow: none; padding: 0;
+  text-shadow: 0 4px 24px rgba(0, 0, 0, .75), 0 0 2px rgba(0, 0, 0, .9); animation-duration: 1.6s;
+}
+@keyframes announce { 0% { opacity: 0; transform: translate(-50%, -40%); } 12% { opacity: 1; transform: translate(-50%, -50%); } 80% { opacity: 1; } 100% { opacity: 0; } }
+
+.options { position: relative; }
+.options summary {
+  list-style: none; cursor: pointer; padding: 6px 14px; border-radius: 999px; border: 1px solid var(--line);
+  background: var(--felt-raised); font-size: .92rem;
+}
+.options summary::-webkit-details-marker { display: none; }
+.options[open] summary { border-color: var(--brass); }
+.options-menu {
+  position: absolute; right: 0; top: calc(100% + 6px); z-index: 5; display: flex; flex-direction: column; align-items: stretch; gap: 2px;
+  background: var(--felt-deep); border: 1px solid var(--line); border-radius: var(--radius); padding: 8px; min-width: 190px;
+  box-shadow: 0 14px 34px rgba(0, 0, 0, .45);
+}
+.options-menu button { text-align: left; }
+.options-menu label { margin: 4px 8px; }
+.game > .options { align-self: flex-end; }
+
+.log { position: relative; }
+.log-toggle { position: absolute; top: 4px; right: 6px; font-size: .82rem; }
+
+@media (min-width: 1000px) {
+  .game.mode-3d > .phase-track { top: 12px; left: calc((100% - 392px) / 2); transform: translateX(-50%); max-width: calc(100% - 392px - 600px); min-width: 300px; }
+  .game.mode-3d > .controls.options { top: 12px; right: 404px; background: none; border: none; padding: 0; }
+  .game.mode-3d > .playerbar { max-width: 300px; }
+  .game.mode-3d .log { flex: 0 1 auto; }
+  .game.mode-3d .announcer { left: calc((100% - 392px) / 2); }
+  .game.mode-3d .hud-preview { top: 84px; }
+}
+@media (min-width: 1000px) and (max-width: 1350px) {
+  .game.mode-3d > .phase-track { top: 74px; left: 12px; transform: none; max-width: calc(100% - 420px); }
+  .game.mode-3d .hud-preview { top: 130px; }
+}
+@media (min-width: 1000px) {
+  /* Over the 3D table the phase track is a compact strip: one segment per step, only the current one named. */
+  .game.mode-3d > .phase-track { max-width: none; min-width: 0; gap: 10px; padding: 6px 12px; }
+  .game.mode-3d > .phase-track ol { gap: 3px; align-items: center; }
+  .game.mode-3d > .phase-track li:not(.now) { font-size: 0; padding: 0; width: 14px; height: 6px; border-radius: 3px; border: none; background: rgba(239, 230, 210, .22); }
+  .game.mode-3d > .phase-track li.combat:not(.now) { background: rgba(210, 88, 60, .5); }
+  .game.mode-3d > .phase-track li.done { opacity: .35; }
+  .game.mode-3d > .phase-track .turn { position: static; padding-right: 0; }
+  .game.mode-3d .log { margin-bottom: auto; }
+}
+@media (min-width: 1000px) and (max-width: 1350px) {
+  .game.mode-3d > .phase-track { top: 12px; left: calc((100% - 392px) / 2); transform: translateX(-50%); }
+  .game.mode-3d .hud-preview { top: 84px; }
+}

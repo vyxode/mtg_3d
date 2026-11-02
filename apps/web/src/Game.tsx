@@ -66,10 +66,22 @@ export function Game({ room, update, onError }: Props) {
   for (const e of update.events) if (e.kind === 'zoneChange' && e.card) { names.current.set(e.from, displayName(e.card)); names.current.set(e.to, displayName(e.card)); }
 
   const [log, setLog] = useState<string[]>([]);
+  const [logAll, setLogAll] = useState(false);
+  // The announcer: a new turn, or what the opponent just did, shown for a moment in the middle of the table.
+  const [announce, setAnnounce] = useState<{ text: string; big: boolean; id: number } | null>(null);
   useEffect(() => {
     const lines = update.events.map((e) => describe(e, names.current, nameOf)).filter((l): l is string => l !== null);
     if (lines.length) setLog((old) => [...lines.reverse(), ...old].slice(0, 80));
+    const turn = [...update.events].reverse().find((e) => e.kind === 'turnStarted');
+    const theirs = lines.find((l) => l.startsWith(nameOf(opp)) && !l.includes('roba una carta'));
+    if (turn?.kind === 'turnStarted') setAnnounce({ text: turn.active === me ? 'Tu turno' : `Turno de ${nameOf(turn.active)}`, big: true, id: update.version });
+    else if (theirs) setAnnounce({ text: theirs, big: false, id: update.version });
   }, [update.version]); // one log entry per server update
+  useEffect(() => {
+    if (!announce) return undefined;
+    const t = setTimeout(() => { setAnnounce(null); }, announce.big ? 1600 : 2600);
+    return () => { clearTimeout(t); };
+  }, [announce]);
 
   const send = async (response: Response) => {
     if (!mine) return;
@@ -148,18 +160,23 @@ export function Game({ room, update, onError }: Props) {
           </ol>
         </div>
         <Decision view={view} mine={mine} pendingOther={pending && !mine ? pending : null} nameOf={nameOf} send={send} onError={onError} />
-        <details className="log" open>
-          <summary><h3>Registro</h3></summary>
-          <ul>{log.map((l, i) => <li key={`${String(i)}-${l}`}>{l}</li>)}</ul>
-        </details>
+        <div className="log" aria-label="Registro">
+          <h3>Registro</h3>
+          {log.length > 4 && <button className="link log-toggle" onClick={() => { setLogAll(!logAll); }}>{logAll ? 'Ver menos' : 'Ver todo'}</button>}
+          <ul>{log.slice(0, logAll ? 80 : 4).map((l, i) => <li key={`${String(i)}-${l}`}>{l}</li>)}</ul>
+        </div>
       </section>
 
       <PlayerBar view={view} p={me} name={`${nameOf(me)} (tú)`} active={view.turn.active === me} />
-      <div className="controls">
-        <FullControl room={room} />
-        <button className="quiet" onClick={switchMode}>{mode === '3d' ? 'Mesa 2D' : 'Mesa 3D'}</button>
-        {!view.result && <button className="quiet danger" onClick={concede}>Conceder</button>}
-      </div>
+      <details className="controls options">
+        <summary>Opciones</summary>
+        <div className="options-menu">
+          <FullControl room={room} />
+          <button className="quiet" onClick={switchMode}>{mode === '3d' ? 'Mesa 2D' : 'Mesa 3D'}</button>
+          {!view.result && <button className="quiet danger" onClick={concede}>Conceder</button>}
+        </div>
+      </details>
+      {announce && <p key={announce.id} className={`announcer${announce.big ? ' big' : ''}`} role="status">{announce.text}</p>}
     </main>
     </TableContext.Provider>
   );
@@ -200,16 +217,27 @@ function FullControl({ room }: { room: RoomState }) {
   );
 }
 
-function PlayerBar({ view, p, name, active, away, children }: { view: PlayerView; p: PlayerId; name: string; active: boolean; away?: boolean; children?: React.ReactNode }) {
+function PlayerBar({ view, p, name, active, away }: { view: PlayerView; p: PlayerId; name: string; active: boolean; away?: boolean }) {
   const pl = view.players[p];
+  // A change of life floats up from the medallion ("−3", "+2"), like a counter clicking.
+  const prev = useRef(pl.life);
+  const [delta, setDelta] = useState<{ n: number; id: number } | null>(null);
+  useEffect(() => {
+    const d = pl.life - prev.current;
+    prev.current = pl.life;
+    if (d !== 0) setDelta({ n: d, id: performance.now() });
+  }, [pl.life]);
   return (
     <section className={`playerbar${active ? ' active' : ''}${p === view.viewer ? ' me' : ' them'}`} aria-label={name}>
-      <span className="who">{name}{away && <span className="away"> desconectado</span>}</span>
-      <span className="life" aria-label={`${String(pl.life)} vidas`}>{pl.life}</span>
-      <span className="count">Mano <b>{pl.handSize}</b></span>
-      <span className="count">Biblioteca <b>{pl.librarySize}</b></span>
+      <span className="life" aria-label={`${String(pl.life)} vidas`}>
+        {pl.life}
+        {delta && <span key={delta.id} className={`delta ${delta.n < 0 ? 'down' : 'up'}`} aria-hidden="true">{delta.n > 0 ? '+' : '−'}{Math.abs(delta.n)}</span>}
+      </span>
+      <span className="who">
+        <b>{name}</b>{away && <span className="away"> desconectado</span>}
+        <span className="counts"><span>Mano {pl.handSize}</span><span>Biblioteca {pl.librarySize}</span></span>
+      </span>
       <ManaPips pool={pl.manaPool} />
-      {children}
     </section>
   );
 }

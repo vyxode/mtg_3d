@@ -1,12 +1,12 @@
 import { expect, test } from '@playwright/test';
-import { startGame } from './helpers';
+import { startGame, to2D } from './helpers';
 
 test('two friends create a room, choose decks and play the first turn', async ({ browser }) => {
   const { ana, beto, errors } = await startGame(browser);
 
   // Ana plays on the 3D table (the default with WebGL); Beto switches to the 2D table, whose DOM the checks below read.
   await expect(ana.locator('.table3d canvas')).toBeVisible();
-  await beto.getByRole('button', { name: 'Mesa 2D' }).click();
+  await to2D(beto);
 
   const play = ana.getByRole('button', { name: /^Jugar / }).first();
   const land = ((await play.textContent()) ?? '').replace('Jugar ', '');
