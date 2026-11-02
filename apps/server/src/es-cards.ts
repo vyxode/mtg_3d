@@ -25,11 +25,16 @@ export function entriesOf(card: ScryCard): [string, EsCard][] {
   }]);
 }
 
-const pause = () => new Promise((r) => setTimeout(r, 120)); // Scryfall asks for 50–100 ms between requests
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+const pause = () => sleep(600); // card searches are rate-limited more tightly than other endpoints
 
-async function spanish(name: string, token: boolean): Promise<ScryCard | null> {
+async function spanish(name: string, token: boolean, attempt = 1): Promise<ScryCard | null> {
   const q = `!"${name}" lang:es${token ? ' is:token' : ''}`;
   const res = await fetch(`${API}/cards/search?q=${encodeURIComponent(q)}&unique=prints&order=released&dir=desc&include_extras=${String(token)}`, { headers: HEADERS });
+  if (res.status === 429 && attempt < 5) { // too many requests: wait as asked, then try again
+    await sleep(Number(res.headers.get('retry-after') ?? '0') * 1000 || 2000 * attempt);
+    return spanish(name, token, attempt + 1);
+  }
   if (res.status === 404) return null; // no Spanish printing
   if (!res.ok) throw new Error(`${name}: HTTP ${String(res.status)}`);
   const body = (await res.json()) as { data: ScryCard[] };
