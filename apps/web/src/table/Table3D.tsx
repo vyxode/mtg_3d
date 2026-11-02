@@ -7,7 +7,7 @@ import { CardImage } from '../CardImage';
 import { CARD_H, CARD_W, layoutTable, libraryPos, type Placement } from './layout';
 import { BADGE_ASPECT, backTexture, badgeTexture, cardTexture, onTextureLoaded } from './textures';
 
-const HIGHLIGHT_COLORS = { playable: '#c9a24a', selected: '#5cd65c', attacking: '#d9534f', blocking: '#4a90d9' } as const;
+const HIGHLIGHT_COLORS = { playable: '#d4a24c', selected: '#6fbf7f', attacking: '#d2583c', blocking: '#4f94c9' } as const; // styles.css tokens
 
 const CAMERAS = {
   jugador: { pos: new Vector3(0, 19, 16.5), look: new Vector3(0, 0, 2.8) },

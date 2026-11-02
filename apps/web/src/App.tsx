@@ -29,13 +29,17 @@ export function App() {
     const onDisconnect = () => { setConnected(false); };
     socket.on('connect', onConnect);
     socket.on('disconnect', onDisconnect);
-    socket.on('room:state', setRoom);
+    const onRoom = (r: RoomState) => {
+      setRoom(r);
+      if (r.status === 'waiting' || r.status === 'choosingDecks') setUpdate(null); // a new game is being set up
+    };
+    socket.on('room:state', onRoom);
     socket.on('game:update', setUpdate);
     if (socket.connected) onConnect();
     return () => {
       socket.off('connect', onConnect);
       socket.off('disconnect', onDisconnect);
-      socket.off('room:state', setRoom);
+      socket.off('room:state', onRoom);
       socket.off('game:update', setUpdate);
     };
   }, []);
@@ -59,13 +63,19 @@ export function App() {
         <span className={`link-state ${connected ? 'on' : 'off'}`} role="status">{connected ? (P2P ? 'Entre navegadores' : 'Conectado') : 'Reconectando…'}</span>
         {room && <button className="quiet" onClick={leave}>Salir</button>}
       </header>
-      {error && <p className="error" role="alert">{error} <button className="quiet" onClick={() => { setError(null); }} aria-label="Cerrar aviso">✕</button></p>}
+      {error && <Toast text={error} onClose={() => { setError(null); }} />}
       {screen === 'decks' && <DeckBuilder />}
       {screen === 'play' && !room && <Lobby onError={setError} />}
       {screen === 'play' && room && !update && <WaitingRoom room={room} onError={setError} />}
       {screen === 'play' && room && update && <Game room={room} update={update} onError={setError} />}
     </div>
   );
+}
+
+/** Errors float over the page (they never push the table around) and fade after a few seconds. */
+function Toast({ text, onClose }: { text: string; onClose: () => void }) {
+  useEffect(() => { const t = setTimeout(onClose, 7000); return () => { clearTimeout(t); }; }, [text, onClose]);
+  return <p className="error toast" role="alert">{text} <button className="quiet" onClick={onClose} aria-label="Cerrar aviso">✕</button></p>;
 }
 
 function Lobby({ onError }: { onError: (e: string | null) => void }) {

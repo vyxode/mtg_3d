@@ -133,6 +133,19 @@ export class Room {
     return null;
   }
 
+  /** Once a game is over: back to choosing decks, keeping the room, the seats and their tokens. */
+  newGame(): string | null {
+    if (this.status() !== 'finished') return 'La partida todavía no ha terminado.';
+    this.state = null;
+    this.seed = null;
+    this.inputs = [];
+    this.version = 0;
+    for (const p of PLAYERS) { const s = this.seats[p]; if (s) s.deck = null; }
+    this.changed();
+    this.broadcastRoom();
+    return null;
+  }
+
   setFullControl(seat: PlayerId, on: boolean): void {
     (this.seats[seat] as Seat).fullControl = on;
     this.changed();

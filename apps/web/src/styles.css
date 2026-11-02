@@ -352,3 +352,12 @@ code.big { font-size: 2.6rem; color: var(--brass); letter-spacing: .18em; }
   font: 700 .95rem/1.2 var(--serif); color: var(--parchment); cursor: pointer;
 }
 .big-card.card-fallback { width: 300px; font-size: 1.4rem; }
+
+.toast { position: fixed; left: 50%; bottom: 18px; transform: translateX(-50%); z-index: 20; margin: 0; max-width: min(640px, calc(100vw - 32px)); box-shadow: 0 10px 30px rgba(0, 0, 0, .4); }
+.banner.win button, .banner.loss button { margin-left: 14px; font: 700 .95rem var(--sans); }
+.banner.win button { background: var(--ink); color: var(--parchment); border-color: var(--ink); }
+kbd { font: .72rem var(--sans); opacity: .7; margin-left: 6px; border: 1px solid currentColor; border-radius: 4px; padding: 0 4px; }
+.mana-taps { margin: 4px 0 8px; font-size: .92rem; }
+.mana-taps summary { cursor: pointer; color: var(--ink-soft); }
+.mana-taps button { font-size: .85rem; padding: 4px 10px; }
+@media (hover: none) { kbd { display: none; } }

@@ -37,13 +37,16 @@ function wrap(ctx: CanvasRenderingContext2D, text: string, x: number, y: number,
 /** Shown while the image loads, and kept if Scryfall cannot be reached: the card's name, never a wrong picture. */
 function placeholder(name: string): HTMLCanvasElement {
   const [c, ctx] = canvas(IMG_W, IMG_H);
-  ctx.fillStyle = '#16181c';
+  const g = ctx.createLinearGradient(0, 0, IMG_W, IMG_H);
+  g.addColorStop(0, '#1b1916');
+  g.addColorStop(1, '#0d0c0b');
+  ctx.fillStyle = g;
   ctx.fillRect(0, 0, IMG_W, IMG_H);
-  ctx.strokeStyle = '#5a5f69';
-  ctx.lineWidth = 10;
-  ctx.strokeRect(14, 14, IMG_W - 28, IMG_H - 28);
-  ctx.fillStyle = '#e6e8eb';
-  ctx.font = '600 44px system-ui, sans-serif';
+  ctx.strokeStyle = '#4a4234';
+  ctx.lineWidth = 6;
+  ctx.strokeRect(22, 22, IMG_W - 44, IMG_H - 44);
+  ctx.fillStyle = '#efe6d2';
+  ctx.font = '700 46px Alegreya, Georgia, serif';
   ctx.textAlign = 'center';
   wrap(ctx, name, IMG_W / 2, 120, IMG_W - 80, 54);
   return c;
@@ -118,12 +121,12 @@ export function badgeTexture(text: string): Texture {
   const hit = badges.get(text);
   if (hit) return hit;
   const [c, ctx] = canvas(192, 64);
-  ctx.fillStyle = 'rgba(0,0,0,0.82)';
+  ctx.fillStyle = 'rgba(16,36,31,0.92)';
   ctx.beginPath();
   ctx.roundRect(0, 0, 192, 64, 14);
   ctx.fill();
-  ctx.fillStyle = '#f2f3f5';
-  ctx.font = '700 36px system-ui, sans-serif';
+  ctx.fillStyle = '#efe6d2';
+  ctx.font = '700 36px "Alegreya Sans", system-ui, sans-serif';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   ctx.fillText(text, 96, 34, 180);

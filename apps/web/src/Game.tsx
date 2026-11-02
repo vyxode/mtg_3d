@@ -114,6 +114,7 @@ export function Game({ room, update, onError }: Props) {
       {view.result && (
         <p className={`banner ${view.result.winner === me ? 'win' : 'loss'}`} role="status">
           {view.result.winner === null ? 'Empate.' : view.result.winner === me ? '¡Has ganado!' : `Ha ganado ${nameOf(view.result.winner)}.`}
+          <button onClick={() => void ask('room:newGame', {})}>Nueva partida</button>
         </p>
       )}
 
@@ -509,6 +510,16 @@ function Priority({ view, d, nameOf, send, onError }: { view: PlayerView; d: Ext
   };
 
   const [focus, setFocus] = useState<ObjectId | null>(null);
+  // Space passes priority, unless you are typing or a button has focus (then Space presses that button).
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.code !== 'Space' || e.repeat || (e.target instanceof HTMLElement && e.target.closest('input, select, textarea, button, summary'))) return;
+      e.preventDefault();
+      void send({ kind: 'pass' });
+    };
+    window.addEventListener('keydown', onKey);
+    return () => { window.removeEventListener('keydown', onKey); };
+  }, [send]);
   useTableClick((id) => {
     const acts = usableActions(view, d.legal).filter((a) => a.kind !== 'activateMana' && subject(a) === id);
     if (acts.length === 1) choose(acts[0] as LegalAction);
@@ -528,6 +539,8 @@ function Priority({ view, d, nameOf, send, onError }: { view: PlayerView; d: Ext
   }
 
   const usable = usableActions(view, d.legal).filter((a) => focus === null || subject(a) === focus);
+  const plays = usable.filter((a) => a.kind !== 'activateMana');
+  const mana = usable.filter((a) => a.kind === 'activateMana');
   const label = (a: LegalAction): string[] => {
     if (a.kind === 'playLand') return [`Jugar ${cardOf(a.card)}${view.objects[a.card]?.zone === 'graveyard' ? ' desde el cementerio' : ''}`];
     if (a.kind === 'cast') return [`Lanzar ${cardOf(a.card)}${a.warp ? ' por warp' : a.flashback ? ' con flashback' : view.objects[a.card]?.zone === 'exile' ? ' desde el exilio' : ''}`];
@@ -536,15 +549,21 @@ function Priority({ view, d, nameOf, send, onError }: { view: PlayerView; d: Ext
   };
   return (<>
     <h3>Tienes prioridad</h3>
+    {plays.length === 0 && <p>No puedes jugar nada ahora: pasa para seguir.</p>}
     <div className="actions">
-      {usable.map((a) => a.kind === 'activateMana'
-        ? (CARDS.get(cardOf(a.source))?.manaAbilities?.[0]?.produce ?? []).map((m) => (
-          <button key={`mana-${a.source}-${m}`} onClick={() => { choose(a, m); }}>Girar {cardOf(a.source)} ({m})</button>
-        ))
-        : label(a).map((text) => <button key={`${a.kind}-${subject(a)}-${text}`} onClick={() => { choose(a); }}>{text}</button>))}
+      {plays.map((a) => label(a).map((text) => <button key={`${a.kind}-${subject(a)}-${text}`} onClick={() => { choose(a); }}>{text}</button>))}
     </div>
+    {mana.length > 0 && (
+      <details className="mana-taps">
+        <summary>Girar tierras a mano</summary>
+        <p className="muted">No hace falta: al lanzar algo se paga solo. Sirve para dejar maná en reserva.</p>
+        {mana.map((a) => (CARDS.get(cardOf(a.source))?.manaAbilities?.[0]?.produce ?? []).map((m) => (
+          <button key={`mana-${a.source}-${m}`} onClick={() => { choose(a, m); }}>Girar {cardOf(a.source)} ({m})</button>
+        )))}
+      </details>
+    )}
     {focus && <button className="link" onClick={() => { setFocus(null); }}>Ver todas las acciones</button>}
-    <button className="primary" onClick={() => void send({ kind: 'pass' })}>{view.stack.length ? 'Pasar (resolver)' : 'Pasar'}</button>
+    <button className="primary" onClick={() => void send({ kind: 'pass' })} aria-keyshortcuts="Space">{view.stack.length ? 'Pasar (resolver)' : 'Pasar'} <kbd>espacio</kbd></button>
   </>);
 }
 

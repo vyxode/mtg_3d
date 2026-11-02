@@ -45,6 +45,11 @@ export function openSession(rooms: Rooms, out: Outbox): Session {
       const error = room.setDeck(seat, deck);
       return error ? { ok: false, error } : { ok: true };
     },
+    'room:newGame': () => {
+      if (!room || !seat) return notIn;
+      const error = room.newGame();
+      return error ? { ok: false, error } : { ok: true };
+    },
     'room:settings': ({ fullControl }) => {
       if (!room || !seat) return notIn;
       room.setFullControl(seat, fullControl);

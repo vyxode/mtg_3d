@@ -40,6 +40,8 @@ export const clientMessages = {
   'room:rejoin': z.object({ code, token: z.string().min(16).max(64) }),
   'room:deck': z.object({ deck: z.array(z.string().min(1).max(141)).min(1).max(250) }),
   'room:settings': z.object({ fullControl: z.boolean() }),
+  /** After a game: back to choosing decks, same room and seats. */
+  'room:newGame': z.object({}),
   'game:input': z.union([
     z.object({ decisionId: z.number().int().nonnegative(), response: responseSchema }),
     z.object({ concede: z.literal(true) }),
@@ -79,5 +81,6 @@ export interface ClientToServer {
   'room:rejoin': (p: ClientPayload<'room:rejoin'>, ack: (a: JoinAck) => void) => void;
   'room:deck': (p: ClientPayload<'room:deck'>, ack: (a: Ack) => void) => void;
   'room:settings': (p: ClientPayload<'room:settings'>, ack: (a: Ack) => void) => void;
+  'room:newGame': (p: ClientPayload<'room:newGame'>, ack: (a: Ack) => void) => void;
   'game:input': (p: ClientPayload<'game:input'>, ack: (a: Ack) => void) => void;
 }
