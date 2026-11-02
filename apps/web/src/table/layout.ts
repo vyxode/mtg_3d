@@ -5,7 +5,7 @@ import type { ObjectId, PlayerId, PlayerView, VisibleObject } from '@mtg3d/engin
 export const CARD_W = 2;
 export const CARD_H = 2.8;
 
-export type Highlight = 'playable' | 'attacking' | 'blocking' | null;
+export type Highlight = 'playable' | 'selected' | 'attacking' | 'blocking' | null;
 
 /** Where one card sits on the table. Pure data: the 3D scene only draws and animates it. */
 export interface Placement {
@@ -57,7 +57,7 @@ function badgesOf(o: VisibleObject): string[] {
 const isLand = (o: VisibleObject) => o.types.includes('Land') && !o.types.includes('Creature');
 
 /** Everything visible on the table from the viewer's seat; `playable` are the cards the viewer can use now. */
-export function layoutTable(view: PlayerView, playable: ReadonlySet<ObjectId> = new Set()): Placement[] {
+export function layoutTable(view: PlayerView, playable: ReadonlySet<ObjectId> = new Set(), selected: ReadonlySet<ObjectId> = new Set()): Placement[] {
   const me = view.viewer;
   const out: Placement[] = [];
   const attackers = new Set(view.combat?.attackers.map((a) => a.id));
@@ -77,7 +77,7 @@ export function layoutTable(view: PlayerView, playable: ReadonlySet<ObjectId> = 
         out.push({
           key: o.id, card: o.card, owner: o.owner, x: xs[i] ?? 0, y: 0.01 + i * 0.002, z: s * (r === 0 ? 3 : 6.6),
           yaw: yaw - (o.tapped ? Math.PI / 2 : 0), tilt: 0, badges: badgesOf(o),
-          highlight: attackers.has(o.id) ? 'attacking' : blocking.has(o.id) ? 'blocking' : playable.has(o.id) ? 'playable' : null,
+          highlight: attackers.has(o.id) ? 'attacking' : blocking.has(o.id) ? 'blocking' : selected.has(o.id) ? 'selected' : playable.has(o.id) ? 'playable' : null,
         });
       });
     });

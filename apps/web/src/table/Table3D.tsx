@@ -6,7 +6,7 @@ import { cardImage } from '../net';
 import { CARD_H, CARD_W, layoutTable, libraryPos, type Placement } from './layout';
 import { BADGE_ASPECT, backTexture, badgeTexture, cardTexture, onTextureLoaded } from './textures';
 
-const HIGHLIGHT_COLORS = { playable: '#c9a24a', attacking: '#d9534f', blocking: '#4a90d9' } as const;
+const HIGHLIGHT_COLORS = { playable: '#c9a24a', selected: '#5cd65c', attacking: '#d9534f', blocking: '#4a90d9' } as const;
 
 const CAMERAS = {
   jugador: { pos: new Vector3(0, 19, 16.5), look: new Vector3(0, 0, 2.8) },
@@ -14,10 +14,10 @@ const CAMERAS = {
 } as const;
 type CameraName = keyof typeof CAMERAS;
 
-interface Props { view: PlayerView; events: GameEvent[]; usable: ReadonlySet<ObjectId> }
+interface Props { view: PlayerView; events: GameEvent[]; usable: ReadonlySet<ObjectId>; selected: ReadonlySet<ObjectId>; onCardClick: (id: ObjectId) => void }
 
-export function Table3D({ view, events, usable }: Props) {
-  const placements = layoutTable(view, usable);
+export function Table3D({ view, events, usable, selected, onCardClick }: Props) {
+  const placements = layoutTable(view, usable, selected);
   const [hover, setHover] = useState<Placement | null>(null);
   const [pinned, setPinned] = useState<Placement | null>(null);
   const [camera, setCamera] = useState<CameraName>('jugador');
@@ -58,7 +58,11 @@ export function Table3D({ view, events, usable }: Props) {
         {placements.map((p) => (
           <Card3D key={p.key} p={p} spawn={spawnOf} positions={positions.current}
             onHover={(on) => { setHover(on && p.card ? p : null); }}
-            onPick={() => { if (p.card) setPinned(pinned?.key === p.key ? null : p); }} />
+            onPick={() => {
+              if (!p.card) return;
+              // A card you can use (or have chosen) acts; any other card pins its preview.
+              if (usable.has(p.key) || selected.has(p.key)) onCardClick(p.key); else setPinned(pinned?.key === p.key ? null : p);
+            }} />
         ))}
       </Canvas>
       <div className="hud-cameras">

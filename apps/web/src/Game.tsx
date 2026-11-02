@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useRef, useState } from 'react';
+import { createContext, lazy, Suspense, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { CARDS } from '@mtg3d/cards';
 import type { GameEvent, LegalAction, ManaType, ObjectId, PendingDecision, PlayerId, PlayerView, Response, Step, Target, VisibleObject } from '@mtg3d/engine';
 import type { GameUpdate, RoomState } from '@mtg3d/protocol';
@@ -10,6 +10,32 @@ const Table3D = lazy(() => import('./table/Table3D').then((m) => ({ default: m.T
 const webglAvailable = (): boolean => {
   try { return !!document.createElement('canvas').getContext('webgl2'); } catch { return false; }
 };
+
+/**
+ * Clicking a card on the table (3D or 2D) talks to whichever decision panel is open: it plays or casts the card,
+ * picks it as a target, attacker or blocker. Panels tell the table which cards to light up.
+ */
+interface TableLink {
+  subscribe(fn: (id: ObjectId) => void): () => void;
+  /** Cards the open panel can use now (gold) and cards already chosen (green); null = default highlights. */
+  mark(offer: ObjectId[] | null, chosen: ObjectId[]): void;
+}
+const TableContext = createContext<TableLink>({ subscribe: () => () => undefined, mark: () => undefined });
+
+function useTableClick(fn: (id: ObjectId) => void): void {
+  const link = useContext(TableContext);
+  const latest = useRef(fn);
+  latest.current = fn;
+  useEffect(() => link.subscribe((id) => { latest.current(id); }), [link]);
+}
+
+/** Lights up cards while a panel is open, and clears them when it closes. */
+function useTableMarks(offer: ObjectId[] | null, chosen: ObjectId[]): void {
+  const link = useContext(TableContext);
+  const key = JSON.stringify([offer, chosen]);
+  useEffect(() => { link.mark(offer, chosen); }, [link, key]); // keyed by content: callers pass fresh arrays each render
+  useEffect(() => () => { link.mark(null, []); }, [link]);
+}
 
 const STEP_NAMES: Record<Step, string> = {
   untap: 'Enderezar', upkeep: 'Mantenimiento', draw: 'Robar', main1: 'Fase principal 1',
@@ -60,9 +86,20 @@ export function Game({ room, update, onError }: Props) {
     try { localStorage.setItem('mtg3d.table', next); } catch { /* storage blocked */ }
   };
 
+  const listeners = useRef(new Set<(id: ObjectId) => void>());
+  const [marks, setMarks] = useState<{ offer: ObjectId[] | null; chosen: ObjectId[] }>({ offer: null, chosen: [] });
+  const link = useMemo<TableLink>(() => ({
+    subscribe: (fn) => { listeners.current.add(fn); return () => { listeners.current.delete(fn); }; },
+    mark: (offer, chosen) => { setMarks({ offer, chosen }); },
+  }), []);
+  const onCardClick = (id: ObjectId) => { for (const fn of listeners.current) fn(id); };
+  const usable = new Set(marks.offer ?? (mine?.kind === 'priority' ? usableActions(view, mine.legal).filter((a) => a.kind !== 'activateMana').map(subject) : []));
+  const chosen = new Set(marks.chosen);
+
   const battlefield = (p: PlayerId) => view.zones.battlefield.map((id) => view.objects[id]).filter((o): o is VisibleObject => o?.controller === p);
 
   return (
+    <TableContext.Provider value={link}>
     <main className="game">
       <section className="status">
         <span>Turno {view.turn.number} · {nameOf(view.turn.active)} · <b>{STEP_NAMES[view.turn.step]}</b></span>
@@ -79,8 +116,8 @@ export function Game({ room, update, onError }: Props) {
       )}
 
       <PlayerBar view={view} p={opp} name={nameOf(opp)} />
-      {mode === '2d' && <Zone title={`Campo de ${nameOf(opp)}`} cards={battlefield(opp)} />}
-      {mode === '3d' && <Suspense fallback={<div className="table3d"><p className="muted">Cargando la mesa 3D…</p></div>}><Table3D view={view} events={update.events} usable={new Set(mine?.kind === 'priority' ? usableActions(view, mine.legal).filter((a) => a.kind !== 'activateMana').map(subject) : [])} /></Suspense>}
+      {mode === '2d' && <Zone title={`Campo de ${nameOf(opp)}`} cards={battlefield(opp)} selected={chosen} onClick={onCardClick} />}
+      {mode === '3d' && <Suspense fallback={<div className="table3d"><p className="muted">Cargando la mesa 3D…</p></div>}><Table3D view={view} events={update.events} usable={usable} selected={chosen} onCardClick={onCardClick} /></Suspense>}
 
       <section className="middle">
         <div className="stack">
@@ -100,9 +137,9 @@ export function Game({ room, update, onError }: Props) {
         </div>
       </section>
 
-      {mode === '2d' && <Zone title="Tu campo" cards={battlefield(me)} />}
+      {mode === '2d' && <Zone title="Tu campo" cards={battlefield(me)} selected={chosen} onClick={onCardClick} />}
       <PlayerBar view={view} p={me} name={`${nameOf(me)} (tú)`} />
-      {mode === '2d' && <Zone title="Tu mano" cards={view.zones.hand.map((id) => view.objects[id]).filter((o): o is VisibleObject => !!o)} />}
+      {mode === '2d' && <Zone title="Tu mano" cards={view.zones.hand.map((id) => view.objects[id]).filter((o): o is VisibleObject => !!o)} selected={chosen} onClick={onCardClick} />}
       <details>
         <summary>Cementerios</summary>
         {(['p1', 'p2'] as const).map((p) => (
@@ -110,6 +147,7 @@ export function Game({ room, update, onError }: Props) {
         ))}
       </details>
     </main>
+    </TableContext.Provider>
   );
 }
 
@@ -273,13 +311,17 @@ function CrewPicker({ view, vehicle, need, onDone, onCancel }: { view: PlayerVie
 function TargetPicker({ options, view, nameOf, onDone, onCancel, optional }: { options: Target[][]; view: PlayerView; nameOf: (p: PlayerId) => string; onDone: (t: Target[]) => void; onCancel?: () => void; optional?: boolean }) {
   const [chosen, setChosen] = useState<Target[]>([]);
   const slot = options[chosen.length] ?? [];
+  const pick = (t: Target) => {
+    const next = [...chosen, t];
+    if (next.length === options.length) onDone(next); else setChosen(next);
+  };
+  const objects = slot.flatMap((t) => (t.kind === 'object' ? [t.id] : []));
+  useTableMarks(objects, []);
+  useTableClick((id) => { const t = slot.find((x) => x.kind === 'object' && x.id === id); if (t) pick(t); });
   return (<>
     {options.length > 1 && <p className="muted">Objetivo {chosen.length + 1} de {options.length}</p>}
     {slot.map((t) => (
-      <button key={JSON.stringify(t)} onClick={() => {
-        const next = [...chosen, t];
-        if (next.length === options.length) onDone(next); else setChosen(next);
-      }}>{targetLabel(t, view, nameOf)}</button>
+      <button key={JSON.stringify(t)} onClick={() => { pick(t); }}>{targetLabel(t, view, nameOf)}</button>
     ))}
     {optional && chosen.length === 0 && <button className="link" onClick={() => { onDone([]); }}>Sin objetivo</button>}
     {onCancel && <button className="link" onClick={onCancel}>Cancelar</button>}
@@ -306,8 +348,11 @@ function Attackers({ view, d, send, nameOf }: { view: PlayerView; d: Extract<Pen
   const [aims, setAims] = useState<Record<ObjectId, ObjectId>>({});
   const toggle = (id: ObjectId) => { setPicked((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; }); };
   const opp = nameOf(view.viewer === 'p1' ? 'p2' : 'p1');
+  useTableMarks(d.candidates, [...picked]);
+  useTableClick((id) => { if (d.candidates.includes(id)) toggle(id); });
   return (<>
     <h3>Elige atacantes</h3>
+    <p className="muted">Toca tus criaturas en la mesa o aquí abajo.</p>
     <Zone title="Puedes atacar con" cards={d.candidates.map((id) => view.objects[id]).filter((o): o is VisibleObject => !!o)} selected={picked} onClick={toggle} />
     {d.planeswalkers.length > 0 && [...picked].map((a) => (
       <label key={a} className="row">{view.objects[a]?.card} ataca a
@@ -325,9 +370,20 @@ function Attackers({ view, d, send, nameOf }: { view: PlayerView; d: Extract<Pen
 
 function Blockers({ view, d, send }: { view: PlayerView; d: Extract<PendingDecision, { kind: 'declareBlockers' }>; send: (r: Response) => Promise<void> }) {
   const [blocks, setBlocks] = useState<Record<ObjectId, ObjectId>>({});
+  const [armed, setArmed] = useState<ObjectId | null>(null);
   const card = (id: ObjectId) => view.objects[id]?.card ?? id;
+  const blockers = d.candidates.map((c) => c.blocker);
+  useTableMarks(armed ? d.candidates.find((c) => c.blocker === armed)?.attackers ?? [] : blockers, [...Object.keys(blocks).filter((b) => blocks[b]), ...(armed ? [armed] : [])]);
+  // Tap one of your creatures, then the attacker it blocks; tap an assigned blocker again to take it back.
+  useTableClick((id) => {
+    if (armed && d.candidates.find((c) => c.blocker === armed)?.attackers.includes(id)) { setBlocks({ ...blocks, [armed]: id }); setArmed(null); return; }
+    if (!blockers.includes(id)) return;
+    if (blocks[id]) { setBlocks({ ...blocks, [id]: '' }); return; }
+    setArmed(armed === id ? null : id);
+  });
   return (<>
     <h3>Declara bloqueadores</h3>
+    <p className="muted">{armed ? `${card(armed)}: toca el atacante que bloquea.` : 'Toca una criatura tuya en la mesa y después el atacante, o usa las listas.'}</p>
     {d.candidates.map((c) => (
       <label key={c.blocker} className="row">{card(c.blocker)} bloquea a
         <select value={blocks[c.blocker] ?? ''} onChange={(e) => { setBlocks({ ...blocks, [c.blocker]: e.target.value }); }}>
@@ -410,6 +466,13 @@ function Priority({ view, d, nameOf, send, onError }: { view: PlayerView; d: Ext
     else setPending(a);
   };
 
+  const [focus, setFocus] = useState<ObjectId | null>(null);
+  useTableClick((id) => {
+    const acts = usableActions(view, d.legal).filter((a) => a.kind !== 'activateMana' && subject(a) === id);
+    if (acts.length === 1) choose(acts[0] as LegalAction);
+    else if (acts.length > 1) setFocus(id); // several options (e.g. cast or warp): show just that card's
+  });
+
   if (crewing) {
     return <CrewPicker view={view} vehicle={crewing.source} need={crewNeed(crewing) ?? 0}
       onDone={(crew) => { setCrewing(null); finish(crewing, [], crew); }} onCancel={() => { setCrewing(null); }} />;
@@ -422,7 +485,7 @@ function Priority({ view, d, nameOf, send, onError }: { view: PlayerView; d: Ext
     </>);
   }
 
-  const usable = usableActions(view, d.legal);
+  const usable = usableActions(view, d.legal).filter((a) => focus === null || subject(a) === focus);
   const label = (a: LegalAction): string[] => {
     if (a.kind === 'playLand') return [`Jugar ${cardOf(a.card)}${view.objects[a.card]?.zone === 'graveyard' ? ' desde el cementerio' : ''}`];
     if (a.kind === 'cast') return [`Lanzar ${cardOf(a.card)}${a.warp ? ' por warp' : a.flashback ? ' con flashback' : view.objects[a.card]?.zone === 'exile' ? ' desde el exilio' : ''}`];
@@ -438,6 +501,7 @@ function Priority({ view, d, nameOf, send, onError }: { view: PlayerView; d: Ext
         ))
         : label(a).map((text) => <button key={`${a.kind}-${subject(a)}-${text}`} onClick={() => { choose(a); }}>{text}</button>))}
     </div>
+    {focus && <button className="link" onClick={() => { setFocus(null); }}>Ver todas las acciones</button>}
     <button className="primary" onClick={() => void send({ kind: 'pass' })}>{view.stack.length ? 'Pasar (resolver)' : 'Pasar'}</button>
   </>);
 }
