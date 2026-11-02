@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type DragEvent } from 'react';
-import { CARDS, DEFS } from '@mtg3d/cards';
+import { CARDS, DEFS, displayName, spanish } from '@mtg3d/cards';
 import { manaValue, type ManaCost } from '@mtg3d/engine';
 import { cardImage } from './net';
 import { CardImage } from './CardImage';
@@ -52,7 +52,7 @@ export function DeckBuilder() {
   const search = async (page = 0) => {
     if (!online) {
       const f = filters;
-      const hits = LOCAL.filter((c) => (!f.name || c.name.toLowerCase().includes(f.name.toLowerCase())) && (!f.type || c.typeLine.toLowerCase().includes(f.type.toLowerCase())) && (!f.cmc || c.cmc === Number(f.cmc)) && f.colors.every((x) => x === 'c' ? !/[WUBRG]/.test(c.manaCost) : c.manaCost.includes(x)));
+      const hits = LOCAL.filter((c) => (!f.name || `${c.name} ${displayName(c.name)}`.toLowerCase().includes(f.name.toLowerCase())) && (!f.type || c.typeLine.toLowerCase().includes(f.type.toLowerCase())) && (!f.cmc || c.cmc === Number(f.cmc)) && f.colors.every((x) => x === 'c' ? !/[WUBRG]/.test(c.manaCost) : c.manaCost.includes(x)));
       setResults({ total: hits.length, page: 0, cards: hits });
       return;
     }
@@ -144,8 +144,8 @@ export function DeckBuilder() {
           <div className="results">
             {results.cards.map((c) => (
               <div key={c.name} className="result" draggable onDragStart={(e) => { e.dataTransfer.setData('text/plain', c.name); }}>
-                <CardImage name={c.name} src={c.image ?? cardImage(c.name)} loading="lazy" onClick={() => { setDetail(c); }} />
-                <button className="link result-name" onClick={() => { setDetail(c); }}>{c.name}</button>
+                <CardImage name={displayName(c.name)} src={c.image ?? cardImage(c.name)} loading="lazy" onClick={() => { setDetail(c); }} />
+                <button className="link result-name" onClick={() => { setDetail(c); }}>{displayName(c.name)}</button>
                 <div className="result-actions">
                   {!CARDS.has(c.name) && <span className="badge" title="El motor todavía no implementa esta carta">no jugable</span>}
                   <button onClick={() => { add(c, 'main', 1); }} title="Añadir al mazo" aria-label={`Añadir ${c.name} al mazo`}>+ Mazo</button>
@@ -184,7 +184,7 @@ function DeckView({ deck, change, add, onDropSide, onDuplicate, onDelete }: {
     const info = deck.info[name] ?? { name, cmc: 0, typeLine: '', manaCost: '', image: null, legalities: {}, anyNumber: false };
     return (
       <div key={`${board}-${name}`} className="deck-row">
-        <span>{deck[board][name]}× {name}</span>
+        <span title={name}>{deck[board][name]}× {displayName(name)}</span>
         <span className="muted">{info.manaCost}</span>
         <button onClick={() => { add(info, board, 1); }} aria-label={`Una ${name} más`}>+</button>
         <button onClick={() => { add(info, board, -1); }} aria-label={`Una ${name} menos`}>−</button>
@@ -254,9 +254,10 @@ function CardDetail({ card, onClose, onPickPrinting }: { card: Result; onClose: 
         <div className="row">
           <CardImage className="big-card" name={card.name} src={card.image ?? cardImage(card.name)} />
           <div>
-            <h1>{card.name}</h1>
-            <p>{card.typeLine} · {card.manaCost}</p>
-            <p className="oracle">{full?.oracleText ?? card.oracleText}</p>
+            <h1>{displayName(card.name)}</h1>
+            {spanish(card.name) && <p className="muted">{card.name}</p>}
+            <p>{spanish(card.name)?.type ?? card.typeLine} <span className="muted">{card.manaCost}</span></p>
+            <p className="oracle">{spanish(card.name)?.text ?? full?.oracleText ?? card.oracleText}</p>
             <p>{CARDS.has(card.name) ? <span className="ok">Implementada en el motor</span> : <span className="warn">El motor todavía no la implementa</span>}</p>
           </div>
         </div>

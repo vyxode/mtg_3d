@@ -8,7 +8,8 @@
     "start": "tsx --env-file-if-exists=../../.env src/main.ts",
     "typecheck": "tsc -p tsconfig.json",
     "test": "vitest run",
-    "cards:sync": "tsx src/sync-cards.ts"
+    "cards:sync": "tsx src/sync-cards.ts",
+    "cards:es": "tsx src/es-cards.ts"
   },
   "dependencies": {
     "@mtg3d/cards": "workspace:*",

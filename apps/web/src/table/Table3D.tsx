@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import { Euler, Quaternion, Vector3, type Group } from 'three';
 import type { GameEvent, ObjectId, PlayerView } from '@mtg3d/engine';
+import { displayName } from '@mtg3d/cards';
 import { cardImage } from '../net';
 import { CardImage } from '../CardImage';
 import { CARD_H, CARD_W, layoutTable, libraryPos, type Placement } from './layout';
@@ -73,8 +74,8 @@ export function Table3D({ view, events, usable, selected, onCardClick }: Props) 
       </div>
       {shown?.card && (
         <aside className="hud-preview" aria-live="polite">
-          <CardImage name={shown.card} src={cardImage(shown.card)} key={shown.card} />
-          <p><b>{shown.card}</b>{shown.badges.length > 0 && <> · {shown.badges.join(' · ')}</>}</p>
+          <CardImage name={displayName(shown.card)} src={cardImage(shown.card)} key={shown.card} />
+          <p><b>{displayName(shown.card)}</b>{shown.badges.length > 0 && <> · {shown.badges.join(' · ')}</>}</p>
         </aside>
       )}
     </div>

@@ -1,5 +1,5 @@
 import { createContext, lazy, Suspense, useContext, useEffect, useMemo, useRef, useState } from 'react';
-import { CARDS } from '@mtg3d/cards';
+import { CARDS, displayName } from '@mtg3d/cards';
 import type { GameEvent, LegalAction, ManaType, ObjectId, PendingDecision, PlayerId, PlayerView, Response, Step, Target, VisibleObject } from '@mtg3d/engine';
 import type { GameUpdate, RoomState } from '@mtg3d/protocol';
 import { autopay } from './autopay';
@@ -62,8 +62,8 @@ export function Game({ room, update, onError }: Props) {
 
   // Remember every card name we have seen, so the log can name cards that already left play.
   const names = useRef(new Map<ObjectId, string>());
-  for (const o of Object.values(view.objects)) names.current.set(o.id, o.card);
-  for (const e of update.events) if (e.kind === 'zoneChange' && e.card) { names.current.set(e.from, e.card); names.current.set(e.to, e.card); }
+  for (const o of Object.values(view.objects)) names.current.set(o.id, displayName(o.card));
+  for (const e of update.events) if (e.kind === 'zoneChange' && e.card) { names.current.set(e.from, displayName(e.card)); names.current.set(e.to, displayName(e.card)); }
 
   const [log, setLog] = useState<string[]>([]);
   useEffect(() => {
@@ -127,9 +127,9 @@ export function Game({ room, update, onError }: Props) {
               <Zone title="Tu mano" cards={hand} selected={chosen} onClick={onCardClick} />
               <div className="graveyards">
                 {(['p1', 'p2'] as const).map((p) => (
-                  <p key={p}><b>Cementerio de {p === me ? 'ti' : nameOf(p)}:</b> {view.zones.graveyard[p].map((id) => view.objects[id]?.card).join(', ') || 'vacío'}</p>
+                  <p key={p}><b>Cementerio de {p === me ? 'ti' : nameOf(p)}:</b> {view.zones.graveyard[p].map((id) => displayName(view.objects[id]?.card ?? '')).join(', ') || 'vacío'}</p>
                 ))}
-                {view.zones.exile.length > 0 && <p><b>Exilio:</b> {view.zones.exile.map((id) => view.objects[id]?.card).join(', ')}</p>}
+                {view.zones.exile.length > 0 && <p><b>Exilio:</b> {view.zones.exile.map((id) => displayName(view.objects[id]?.card ?? '')).join(', ')}</p>}
               </div>
             </div>)}
       </section>
@@ -141,7 +141,7 @@ export function Game({ room, update, onError }: Props) {
           <ol>
             {[...view.stack].reverse().map((e) => (
               <li key={e.id} className={e.controller === me ? 'mine' : 'theirs'}>
-                <b>{e.card}</b>{e.kind === 'ability' ? <span className="muted"> (habilidad)</span> : null}
+                <b>{displayName(e.card)}</b>{e.kind === 'ability' ? <span className="muted"> (habilidad)</span> : null}
                 {e.targets.length > 0 && <span className="muted"> sobre {e.targets.map((t) => targetLabel(t, view, nameOf)).join(', ')}</span>}
               </li>
             ))}
@@ -219,9 +219,9 @@ export function CardView({ o, selected, onClick }: { o: VisibleObject; selected?
   const [broken, setBroken] = useState(false);
   const isCreature = o.types.includes('Creature');
   return (
-    <button className={`card${o.tapped ? ' tapped' : ''}${selected ? ' selected' : ''}`} onClick={onClick} disabled={!onClick} title={o.card}>
-      <span className="card-text">{o.card}</span>
-      {!broken && <img src={cardImage(o.card)} alt={o.card} loading="lazy" onError={() => { setBroken(true); }} />}
+    <button className={`card${o.tapped ? ' tapped' : ''}${selected ? ' selected' : ''}`} onClick={onClick} disabled={!onClick} title={displayName(o.card)}>
+      <span className="card-text">{displayName(o.card)}</span>
+      {!broken && <img src={cardImage(o.card)} alt={displayName(o.card)} loading="lazy" onError={() => { setBroken(true); }} />}
       {o.zone === 'battlefield' && isCreature && <span className="pt">{o.power}/{o.toughness}{o.damage > 0 ? ` (−${String(o.damage)})` : ''}</span>}
       {o.zone === 'battlefield' && isCreature && o.summoningSick && <span className="sick">mareada</span>}
       {o.zone === 'battlefield' && o.types.includes('Planeswalker') && <span className="pt">◆ {o.loyalty}</span>}
@@ -297,22 +297,22 @@ function MyDecision({ view, d, nameOf, send, onError }: { view: PlayerView; d: P
       return <OrderTriggers d={d} send={send} />;
     case 'legendRule':
       return (<>
-        <h3>Regla de leyendas: quédate con un {d.name}</h3>
+        <h3>Regla de leyendas: quédate con un {displayName(d.name)}</h3>
         <Zone title="Elige cuál conservar" cards={d.candidates.map((id) => view.objects[id]).filter((o): o is VisibleObject => !!o)} onClick={(id) => void send({ kind: 'legendRule', keep: id })} />
       </>);
     case 'surveil':
       return <Surveil d={d} send={send} />;
     case 'searchLibrary':
       return (<>
-        <h3>{d.source}: busca en tu biblioteca</h3>
+        <h3>{displayName(d.source)}: busca en tu biblioteca</h3>
         <div className="actions">
-          {d.cards.map((card) => <button key={card} onClick={() => void send({ kind: 'searchLibrary', card })}>{card}</button>)}
+          {d.cards.map((card) => <button key={card} onClick={() => void send({ kind: 'searchLibrary', card })}>{displayName(card)}</button>)}
         </div>
         <button className="link" onClick={() => void send({ kind: 'searchLibrary', card: null })}>No coger ninguna</button>
       </>);
     case 'chooseTargets':
       return (<>
-        <h3>{d.card}: elige objetivo</h3>
+        <h3>{displayName(d.card)}: elige objetivo</h3>
         <TargetPicker options={d.targetOptions} view={view} nameOf={nameOf} optional={d.optional === true} onDone={(targets) => void send({ kind: 'chooseTargets', targets })} />
       </>);
   }
@@ -325,7 +325,7 @@ function Surveil({ d, send }: { d: Extract<PendingDecision, { kind: 'surveil' }>
   const [binned, setBinned] = useState<Set<number>>(new Set());
   const move = (k: number) => { const next = [...order]; [next[k - 1], next[k]] = [next[k] as number, next[k - 1] as number]; setOrder(next); };
   return (<>
-    <h3>{d.source}: vigila {d.cards.length}</h3>
+    <h3>{displayName(d.source)}: vigila {d.cards.length}</h3>
     <p className="muted">Marca las que van al cementerio; el resto vuelve arriba en este orden (la primera queda encima).</p>
     {order.map((i, k) => (
       <div key={i} className="row">
@@ -378,7 +378,7 @@ function OrderTriggers({ d, send }: { d: Extract<PendingDecision, { kind: 'order
     <p className="muted">Pulsa en el orden en que quieres que se resuelvan (la primera se resuelve antes).</p>
     {d.triggers.map((t) => (
       <button key={t.id} disabled={order.includes(t.id)} onClick={() => { setOrder([...order, t.id]); }}>
-        {order.includes(t.id) ? `${String(order.indexOf(t.id) + 1)}. ` : ''}{t.card}
+        {order.includes(t.id) ? `${String(order.indexOf(t.id) + 1)}. ` : ''}{displayName(t.card)}
       </button>
     ))}
     <button className="primary" disabled={order.length !== d.triggers.length} onClick={() => void send({ kind: 'orderTriggers', order })}>Confirmar</button>
@@ -398,10 +398,10 @@ function Attackers({ view, d, send, nameOf }: { view: PlayerView; d: Extract<Pen
     <p className="muted">Toca tus criaturas en la mesa o aquí abajo.</p>
     <Zone title="Puedes atacar con" cards={d.candidates.map((id) => view.objects[id]).filter((o): o is VisibleObject => !!o)} selected={picked} onClick={toggle} />
     {d.planeswalkers.length > 0 && [...picked].map((a) => (
-      <label key={a} className="row">{view.objects[a]?.card} ataca a
+      <label key={a} className="row">{displayName(view.objects[a]?.card ?? '')} ataca a
         <select value={aims[a] ?? ''} onChange={(e) => { const next = { ...aims }; if (e.target.value) next[a] = e.target.value; else Reflect.deleteProperty(next, a); setAims(next); }}>
           <option value="">{opp}</option>
-          {d.planeswalkers.map((pw) => <option key={pw} value={pw}>{view.objects[pw]?.card}</option>)}
+          {d.planeswalkers.map((pw) => <option key={pw} value={pw}>{displayName(view.objects[pw]?.card ?? '')}</option>)}
         </select>
       </label>
     ))}
@@ -414,7 +414,7 @@ function Attackers({ view, d, send, nameOf }: { view: PlayerView; d: Extract<Pen
 function Blockers({ view, d, send }: { view: PlayerView; d: Extract<PendingDecision, { kind: 'declareBlockers' }>; send: (r: Response) => Promise<void> }) {
   const [blocks, setBlocks] = useState<Record<ObjectId, ObjectId>>({});
   const [armed, setArmed] = useState<ObjectId | null>(null);
-  const card = (id: ObjectId) => view.objects[id]?.card ?? id;
+  const card = (id: ObjectId) => displayName(view.objects[id]?.card ?? id);
   const blockers = d.candidates.map((c) => c.blocker);
   useTableMarks(armed ? d.candidates.find((c) => c.blocker === armed)?.attackers ?? [] : blockers, [...Object.keys(blocks).filter((b) => blocks[b]), ...(armed ? [armed] : [])]);
   // Tap one of your creatures, then the attacker it blocks; tap an assigned blocker again to take it back.
@@ -452,10 +452,10 @@ function DamageSplit({ view, d, send }: { view: PlayerView; d: Extract<PendingDe
   const total = Object.values(split).reduce((a, b) => a + b, 0);
   const keys = [...d.blockers, ...(d.trample ? ['player'] : [])];
   return (<>
-    <h3>Reparte {d.amount} de daño de {view.objects[d.attacker]?.card}</h3>
+    <h3>Reparte {d.amount} de daño de {displayName(view.objects[d.attacker]?.card ?? '')}</h3>
     {d.trample && <p className="muted">Arrollar: asigna daño letal a cada bloqueador antes de pasar el resto al jugador.</p>}
     {keys.map((k) => (
-      <label key={k} className="row">{k === 'player' ? 'Jugador defensor' : `${view.objects[k]?.card ?? k} (letal: ${String(d.lethal[k] ?? 0)})`}
+      <label key={k} className="row">{k === 'player' ? 'Jugador defensor' : `${displayName(view.objects[k]?.card ?? k)} (letal: ${String(d.lethal[k] ?? 0)})`}
         <input type="number" min={0} max={d.amount} value={split[k] ?? 0} onChange={(e) => { setSplit({ ...split, [k]: Math.max(0, Math.floor(Number(e.target.value))) }); }} />
       </label>
     ))}
@@ -485,6 +485,7 @@ function usableActions(view: PlayerView, legal: LegalAction[]): LegalAction[] {
 function Priority({ view, d, nameOf, send, onError }: { view: PlayerView; d: Extract<PendingDecision, { kind: 'priority' }>; nameOf: (p: PlayerId) => string; send: (r: Response) => Promise<void>; onError: (e: string | null) => void }) {
   const [pending, setPending] = useState<Targeted | null>(null);
   const cardOf = (id: ObjectId) => view.objects[id]?.card ?? '';
+  const shown = (id: ObjectId) => displayName(cardOf(id));
   const payment = (a: Targeted) => paymentFor(view, d.legal, a);
 
   const [crewing, setCrewing] = useState<Extract<LegalAction, { kind: 'activate' }> | null>(null);
@@ -492,7 +493,7 @@ function Priority({ view, d, nameOf, send, onError }: { view: PlayerView; d: Ext
 
   const finish = (a: Targeted, targets: Target[], crew?: ObjectId[]) => {
     const pay = payment(a);
-    if (!pay) { onError(`No tienes maná suficiente para ${cardOf(subject(a))}.`); return; }
+    if (!pay) { onError(`No tienes maná suficiente para ${shown(subject(a))}.`); return; }
     void send(a.kind === 'cast'
       ? { kind: 'cast', card: a.card, targets, payment: pay, warp: a.warp === true, flashback: a.flashback === true }
       : { kind: 'activate', source: a.source, ability: a.ability, targets, payment: pay, crew });
@@ -501,7 +502,7 @@ function Priority({ view, d, nameOf, send, onError }: { view: PlayerView; d: Ext
   const choose = (a: LegalAction, mana?: ManaType) => {
     if (a.kind === 'playLand') {
       const etb = CARDS.get(cardOf(a.card))?.etb;
-      const payLife = !!etb && 'tappedUnlessPayLife' in etb && confirm(`¿Pagar ${String(etb.tappedUnlessPayLife)} vidas para que ${cardOf(a.card)} entre enderezada?`);
+      const payLife = !!etb && 'tappedUnlessPayLife' in etb && confirm(`¿Pagar ${String(etb.tappedUnlessPayLife)} vidas para que ${shown(a.card)} entre enderezada?`);
       void send({ kind: 'playLand', card: a.card, payLife });
     } else if (a.kind === 'activateMana') void send({ kind: 'activateMana', source: a.source, mana });
     else if (crewNeed(a) !== undefined && a.kind === 'activate') setCrewing(a);
@@ -532,7 +533,7 @@ function Priority({ view, d, nameOf, send, onError }: { view: PlayerView; d: Ext
   }
   if (pending) {
     return (<>
-      <h3>{cardOf(subject(pending))}: elige objetivo</h3>
+      <h3>{shown(subject(pending))}: elige objetivo</h3>
       <TargetPicker options={pending.targetOptions} view={view} nameOf={nameOf}
         onDone={(targets) => { setPending(null); finish(pending, targets); }} onCancel={() => { setPending(null); }} />
     </>);
@@ -542,9 +543,9 @@ function Priority({ view, d, nameOf, send, onError }: { view: PlayerView; d: Ext
   const plays = usable.filter((a) => a.kind !== 'activateMana');
   const mana = usable.filter((a) => a.kind === 'activateMana');
   const label = (a: LegalAction): string[] => {
-    if (a.kind === 'playLand') return [`Jugar ${cardOf(a.card)}${view.objects[a.card]?.zone === 'graveyard' ? ' desde el cementerio' : ''}`];
-    if (a.kind === 'cast') return [`Lanzar ${cardOf(a.card)}${a.warp ? ' por warp' : a.flashback ? ' con flashback' : view.objects[a.card]?.zone === 'exile' ? ' desde el exilio' : ''}`];
-    if (a.kind === 'activate') return [`${cardOf(a.source)}: ${CARDS.get(cardOf(a.source))?.activated?.[a.ability]?.text ?? 'activar'}`];
+    if (a.kind === 'playLand') return [`Jugar ${shown(a.card)}${view.objects[a.card]?.zone === 'graveyard' ? ' desde el cementerio' : ''}`];
+    if (a.kind === 'cast') return [`Lanzar ${shown(a.card)}${a.warp ? ' por warp' : a.flashback ? ' con flashback' : view.objects[a.card]?.zone === 'exile' ? ' desde el exilio' : ''}`];
+    if (a.kind === 'activate') return [`${shown(a.source)}: ${CARDS.get(cardOf(a.source))?.activated?.[a.ability]?.text ?? 'activar'}`];
     return [];
   };
   return (<>
@@ -558,7 +559,7 @@ function Priority({ view, d, nameOf, send, onError }: { view: PlayerView; d: Ext
         <summary>Girar tierras a mano</summary>
         <p className="muted">No hace falta: al lanzar algo se paga solo. Sirve para dejar maná en reserva.</p>
         {mana.map((a) => (CARDS.get(cardOf(a.source))?.manaAbilities?.[0]?.produce ?? []).map((m) => (
-          <button key={`mana-${a.source}-${m}`} onClick={() => { choose(a, m); }}>Girar {cardOf(a.source)} ({m})</button>
+          <button key={`mana-${a.source}-${m}`} onClick={() => { choose(a, m); }}>Girar {shown(a.source)} ({m})</button>
         )))}
       </details>
     )}
@@ -570,7 +571,7 @@ function Priority({ view, d, nameOf, send, onError }: { view: PlayerView; d: Ext
 function targetLabel(t: Target, view: PlayerView, nameOf: (p: PlayerId) => string): string {
   if (t.kind === 'player') return nameOf(t.player);
   const o = view.objects[t.id];
-  return o ? `${o.card} de ${nameOf(o.controller)}` : 'objetivo desaparecido';
+  return o ? `${displayName(o.card)} de ${nameOf(o.controller)}` : 'objetivo desaparecido';
 }
 
 function describe(e: GameEvent, names: Map<ObjectId, string>, nameOf: (p: PlayerId) => string): string | null {
@@ -584,16 +585,16 @@ function describe(e: GameEvent, names: Map<ObjectId, string>, nameOf: (p: Player
     case 'fizzled': return `${n(e.spell)} no se resuelve: su objetivo ya no es legal.`;
     case 'damage': return `${n(e.source)} hace ${String(e.amount)} de daño a ${e.target.kind === 'player' ? nameOf(e.target.player) : n(e.target.id)}.`;
     case 'zoneChange':
-      if (e.toZone === 'graveyard' && e.fromZone === 'battlefield') return `${e.card} va al cementerio.`;
-      if (e.toZone === 'battlefield' && e.fromZone === 'hand') return `${nameOf(e.owner)} juega ${e.card}.`;
+      if (e.toZone === 'graveyard' && e.fromZone === 'battlefield') return `${displayName(e.card)} va al cementerio.`;
+      if (e.toZone === 'battlefield' && e.fromZone === 'hand') return `${nameOf(e.owner)} juega ${displayName(e.card)}.`;
       return null;
     case 'attackersDeclared': return e.attackers.length ? `Atacan: ${e.attackers.map(n).join(', ')}.` : null;
     case 'blockersDeclared': return e.blocks.length ? `Bloqueos: ${e.blocks.map((b) => `${n(b.blocker)} → ${n(b.attacker)}`).join(', ')}.` : null;
     case 'mulligan': return `${nameOf(e.player)} hace mulligan (${String(e.count)}).`;
-    case 'triggered': return `Se dispara la habilidad de ${e.card} (${nameOf(e.controller)}).`;
-    case 'activated': return `${nameOf(e.controller)} activa una habilidad de ${e.card}.`;
-    case 'tokenCreated': return `${nameOf(e.controller)} crea una ficha de ${e.card}.`;
-    case 'revealed': return `${nameOf(e.player)} muestra ${e.card}.`;
+    case 'triggered': return `Se dispara la habilidad de ${displayName(e.card)} (${nameOf(e.controller)}).`;
+    case 'activated': return `${nameOf(e.controller)} activa una habilidad de ${displayName(e.card)}.`;
+    case 'tokenCreated': return `${nameOf(e.controller)} crea una ficha de ${displayName(e.card)}.`;
+    case 'revealed': return `${nameOf(e.player)} muestra ${displayName(e.card)}.`;
     case 'surveilled': return `${nameOf(e.player)} vigila: ${String(e.toGraveyard)} al cementerio, ${String(e.toTop)} arriba.`;
     case 'searched': return e.found ? `${nameOf(e.player)} busca en su biblioteca y pone ${n(e.found)} en el campo.` : `${nameOf(e.player)} busca en su biblioteca y no coge nada.`;
     case 'playerLost': return `${nameOf(e.player)} pierde (${e.reason === 'conceded' ? 'concede' : e.reason === 'life' ? 'sin vidas' : 'sin cartas'}).`;

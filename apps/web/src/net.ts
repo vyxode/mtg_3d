@@ -1,4 +1,4 @@
-import { CARDS } from '@mtg3d/cards';
+import { CARDS, spanish } from '@mtg3d/cards';
 import { io } from 'socket.io-client';
 import type { ClientMessage, GameUpdate, RoomState } from '@mtg3d/protocol';
 import { Hub } from './hub';
@@ -47,6 +47,8 @@ export function saveSession(s: Session | null): void {
 
 /** Official card image by exact Oracle name, served by Scryfall (never cropped or recolored); a back face asks for face=back. */
 export function cardImage(name: string): string {
+  const es = spanish(name)?.image;
+  if (es) return es; // the Spanish printing
   const front = CARDS.get(name)?.frontFace;
   return `https://api.scryfall.com/cards/named?exact=${encodeURIComponent(front ?? name)}&format=image&version=normal${front ? '&face=back' : ''}`;
 }

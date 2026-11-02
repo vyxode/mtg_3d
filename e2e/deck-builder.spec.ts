@@ -13,7 +13,7 @@ test('builds a deck from a pasted list, edits it and offers it in the room', asy
   await page.getByRole('button', { name: 'Buscar', exact: true }).click();
   await page.getByTitle('Añadir al mazo').first().click();
   await expect(page.getByText('Mazo válido y jugable.')).toBeVisible();
-  await expect(page.getByText('4× Lightning Bolt')).toBeVisible();
+  await expect(page.getByTitle('Lightning Bolt')).toContainText('4×'); // shown in Spanish once the Spanish names are generated
 
   await page.getByLabel('Nombre del mazo').fill('Rayos');
   await page.getByRole('button', { name: 'Jugar' }).click();

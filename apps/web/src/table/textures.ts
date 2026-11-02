@@ -1,4 +1,5 @@
 import { CanvasTexture, ImageLoader, SRGBColorSpace, Texture } from 'three';
+import { displayName } from '@mtg3d/cards';
 import { cardImage } from '../net';
 
 /** Scryfall "normal" images are 488 × 680; placeholders use the same size so the image can replace them in place. */
@@ -62,7 +63,7 @@ export function cardTexture(name: string): Texture {
     cache.set(name, hit);
     return hit;
   }
-  const tex = new Texture<HTMLCanvasElement | HTMLImageElement>(placeholder(name));
+  const tex = new Texture<HTMLCanvasElement | HTMLImageElement>(placeholder(displayName(name)));
   tex.needsUpdate = true;
   tex.colorSpace = SRGBColorSpace;
   tex.anisotropy = 4;
