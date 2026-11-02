@@ -21,6 +21,10 @@ export interface Placement {
   yaw: number;
   /** Rotation that lifts the card towards the camera (the viewer's hand). */
   tilt: number;
+  /** Rotation in the card's own plane: the fan of a hand held in the fingers. */
+  roll?: number;
+  /** Held in a hand (lifts towards the viewer on hover). */
+  inHand?: boolean;
   badges: string[];
   highlight: Highlight;
 }
@@ -117,21 +121,28 @@ export function layoutTable(view: PlayerView, playable: ReadonlySet<ObjectId> = 
     Object.assign(aura, { x: under.x + 0.35, z: under.z - Math.sign(under.z || 1) * 0.6, y: under.y - 0.006 });
   }
 
-  // The viewer's hand stands up in front of the camera; the opponent's is face down at the far edge.
+  // Both hands are held up, fanned like real cards: the viewer sees their own faces and the backs of the opponent's.
+  const fan = (n: number, width: number) => {
+    const step = Math.min(1.45, width / Math.max(1, n));
+    return Array.from({ length: n }, (_, i) => { const d = i - (n - 1) / 2; return { d, x: d * step }; });
+  };
   const hand = view.zones.hand.map((id) => view.objects[id]).filter((o): o is VisibleObject => !!o);
-  spread(hand.length, 18, 0.15).forEach((x, i) => {
+  fan(hand.length, 15).forEach(({ d, x }, i) => {
     const o = hand[i] as VisibleObject;
-    out.push({ key: o.id, card: o.card, owner: me, x, y: 1.6 + i * 0.01, z: 9.6, yaw: 0, tilt: 1.0, badges: [], highlight: playable.has(o.id) ? 'playable' : null });
+    out.push({
+      key: o.id, card: o.card, owner: me, x, y: 1.7 - d * d * 0.018 + i * 0.012, z: 12.3 + d * d * 0.025, yaw: 0, tilt: 1.2, roll: -d * 0.06,
+      inHand: true, badges: [], highlight: playable.has(o.id) ? 'playable' : null,
+    });
   });
   const opp: PlayerId = me === 'p1' ? 'p2' : 'p1';
-  spread(view.players[opp].handSize, 14, 0.1).forEach((x, i) => {
-    out.push({ key: `hand-${opp}-${String(i)}`, card: null, owner: opp, x, y: 0.01 + i * 0.002, z: -9.8, yaw: Math.PI, tilt: 0, badges: [], highlight: null });
+  fan(view.players[opp].handSize, 11).forEach(({ d, x }, i) => {
+    out.push({ key: `hand-${opp}-${String(i)}`, card: null, owner: opp, x: -x, y: 1.7 - d * d * 0.015 + i * 0.012, z: -10.6, yaw: Math.PI, tilt: 1.05, roll: d * 0.06, badges: [], highlight: null });
   });
 
-  // The stack, top entry nearest the viewer, to the right of the battlefield.
+  // The stack: spells hang above the middle of the table, the newest highest, tilted towards the viewer.
   view.stack.forEach((e, i) => {
     out.push({
-      key: e.id, card: e.card, owner: e.controller, x: 9 - i * 0.35, y: 0.3 + i * 0.05, z: -1.4 + i * 0.5, yaw: 0, tilt: 0,
+      key: e.id, card: e.card, owner: e.controller, x: i * 0.9 - (view.stack.length - 1) * 0.45, y: 1.6 + i * 0.25, z: 0.2 + i * 0.12, yaw: 0, tilt: 0.75,
       badges: e.kind === 'ability' ? ['habilidad'] : [], highlight: null,
     });
   });

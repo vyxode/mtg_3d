@@ -186,8 +186,8 @@ code.big { font-size: 2.6rem; color: var(--brass); letter-spacing: .18em; }
 .playerbar .life::after { content: ' vidas'; font: .8rem var(--sans); color: var(--parchment-dim); }
 .playerbar .count { color: var(--parchment-dim); font-size: .92rem; }
 .playerbar .count b { color: var(--parchment); font-weight: 700; }
-.playerbar .controls { margin-left: auto; display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
-.playerbar .controls label { margin: 0 8px 0 0; font-size: .92rem; color: var(--parchment-dim); }
+.game > .controls { display: flex; align-items: center; justify-content: flex-end; gap: 4px; flex-wrap: wrap; }
+.game > .controls label { margin: 0 8px 0 0; font-size: .92rem; color: var(--parchment-dim); }
 
 /* The phase track: the playmat's turn structure, the signature of the table. */
 .phase-track { display: flex; align-items: center; gap: 14px; overflow-x: auto; scrollbar-width: none; padding: 2px 2px; }
@@ -361,3 +361,32 @@ kbd { font: .72rem var(--sans); opacity: .7; margin-left: 6px; border: 1px solid
 .mana-taps summary { cursor: pointer; color: var(--ink-soft); }
 .mana-taps button { font-size: .85rem; padding: 4px 10px; }
 @media (hover: none) { kbd { display: none; } }
+
+/* ---------- 3D table, wide screens: the table fills the screen and the interface floats over it ---------- */
+@media (min-width: 1000px) {
+  .game.mode-3d { position: relative; display: block; padding: 0; overflow: hidden; }
+  .game.mode-3d > .arena { position: absolute; inset: 0; border-radius: 0; }
+  .game.mode-3d .table3d { border: none; border-radius: 0; }
+  .game.mode-3d > .playerbar, .game.mode-3d > .phase-track, .game.mode-3d .stack, .game.mode-3d .log {
+    background: rgba(12, 28, 24, .82); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+    border: 1px solid rgba(239, 230, 210, .12); box-shadow: 0 8px 24px rgba(0, 0, 0, .35);
+  }
+  .game.mode-3d > .playerbar { position: absolute; z-index: 2; left: 12px; max-width: min(560px, calc(100% - 420px)); }
+  .game.mode-3d > .playerbar.them { top: 12px; }
+  .game.mode-3d > .playerbar.me { bottom: 12px; }
+  .game.mode-3d > .phase-track { position: absolute; z-index: 2; top: 70px; left: 12px; max-width: calc(100% - 420px); border-radius: var(--radius); padding: 5px 10px; }
+  .game.mode-3d > .phase-track .turn { background: transparent; }
+  .game.mode-3d > .banner { position: absolute; z-index: 3; top: 118px; left: 12px; max-width: calc(100% - 420px); }
+  .game.mode-3d > .console {
+    position: absolute; z-index: 2; top: 12px; right: 12px; bottom: 12px; width: 380px; height: auto;
+    display: flex; flex-direction: column; gap: 8px; pointer-events: none;
+  }
+  .game.mode-3d > .console > * { pointer-events: auto; }
+  .game.mode-3d .log { order: 1; flex: 1 1 auto; min-height: 80px; }
+  .game.mode-3d .stack { order: 2; flex: 0 0 auto; max-height: 30%; }
+  .game.mode-3d .stack:has(ol:empty) { display: none; }
+  .game.mode-3d .decision { order: 3; flex: 0 0 auto; max-height: 55%; }
+  .game.mode-3d > .controls { position: absolute; z-index: 2; top: 12px; right: 404px; background: rgba(12, 28, 24, .82); border-radius: 999px; padding: 2px 8px; border: 1px solid rgba(239, 230, 210, .12); }
+  .game.mode-3d .hud-cameras { top: auto; left: 12px; bottom: 76px; }
+  .game.mode-3d .hud-preview { top: 170px; right: auto; left: 12px; width: 260px; }
+}

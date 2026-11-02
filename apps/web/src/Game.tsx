@@ -120,7 +120,7 @@ export function Game({ room, update, onError }: Props) {
 
       <section className="arena" aria-label="Mesa">
         {mode === '3d'
-          ? <Suspense fallback={<div className="table3d loading"><p>Preparando la mesa…</p></div>}><Table3D view={view} events={update.events} usable={usable} selected={chosen} onCardClick={onCardClick} /></Suspense>
+          ? <Suspense fallback={<div className="table3d loading"><p>Preparando la mesa…</p></div>}><Table3D view={view} events={update.events} usable={usable} selected={chosen} onCardClick={onCardClick} names={{ p1: nameOf('p1'), p2: nameOf('p2') }} /></Suspense>
           : (<div className="table2d">
               <Zone title={`Campo de ${nameOf(opp)}`} cards={battlefield(opp)} selected={chosen} onClick={onCardClick} />
               <Zone title="Tu campo" cards={battlefield(me)} selected={chosen} onClick={onCardClick} />
@@ -154,13 +154,12 @@ export function Game({ room, update, onError }: Props) {
         </details>
       </section>
 
-      <PlayerBar view={view} p={me} name={`${nameOf(me)} (tú)`} active={view.turn.active === me}>
-        <span className="controls">
-          <FullControl room={room} />
-          <button className="quiet" onClick={switchMode}>{mode === '3d' ? 'Mesa 2D' : 'Mesa 3D'}</button>
-          {!view.result && <button className="quiet danger" onClick={concede}>Conceder</button>}
-        </span>
-      </PlayerBar>
+      <PlayerBar view={view} p={me} name={`${nameOf(me)} (tú)`} active={view.turn.active === me} />
+      <div className="controls">
+        <FullControl room={room} />
+        <button className="quiet" onClick={switchMode}>{mode === '3d' ? 'Mesa 2D' : 'Mesa 3D'}</button>
+        {!view.result && <button className="quiet danger" onClick={concede}>Conceder</button>}
+      </div>
     </main>
     </TableContext.Provider>
   );
