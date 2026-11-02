@@ -8,9 +8,15 @@ async function clickIfVisible(page: Page, name: string | RegExp): Promise<boolea
 }
 
 /** Ana creates a room, Beto joins with the code, both pick decks and keep: Ana has priority in her first main phase. */
-export async function startGame(browser: Browser, deck?: string): Promise<{ ana: Page; beto: Page; errors: string[] }> {
-  const ana = await (await browser.newContext()).newPage();
-  const beto = await (await browser.newContext()).newPage();
+export async function startGame(browser: Browser, deck?: string, table?: '2d'): Promise<{ ana: Page; beto: Page; errors: string[] }> {
+  // With table '2d' both players start on the 2D table (the 3D one renders in software on CI machines, slowly).
+  const open = async () => {
+    const ctx = await browser.newContext();
+    if (table) await ctx.addInitScript(() => { localStorage.setItem('mtg3d.table', '2d'); });
+    return ctx.newPage();
+  };
+  const ana = await open();
+  const beto = await open();
   const errors: string[] = [];
   for (const p of [ana, beto]) p.on('pageerror', (e) => { errors.push(e.message); });
 

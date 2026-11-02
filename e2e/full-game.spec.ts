@@ -55,8 +55,7 @@ const tryAct = (page: Page, tried: Set<string>) => act(page, tried).catch(() => 
 
 test('a whole game with the meta deck, played through the interface', async ({ browser }) => {
   test.setTimeout(300_000);
-  const { ana, beto, errors } = await startGame(browser, 'Mono-Green Landfall (meta Standard)');
-  for (const p of [ana, beto]) await p.getByRole('button', { name: 'Mesa 2D' }).click();
+  const { ana, beto, errors } = await startGame(browser, 'Mono-Green Landfall (meta Standard)', '2d');
   const tried = new Set<string>();
   let idle = 0;
   for (let i = 0; i < 1500; i++) {
