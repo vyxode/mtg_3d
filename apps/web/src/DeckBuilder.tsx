@@ -256,8 +256,8 @@ function CardDetail({ card, onClose, onPickPrinting }: { card: Result; onClose: 
           <div>
             <h1>{displayName(card.name)}</h1>
             {spanish(card.name) && <p className="muted">{card.name}</p>}
-            <p>{spanish(card.name)?.type ?? card.typeLine} <span className="muted">{card.manaCost}</span></p>
-            <p className="oracle">{spanish(card.name)?.text ?? full?.oracleText ?? card.oracleText}</p>
+            <p>{spanish(card.name)?.type || card.typeLine} <span className="muted">{card.manaCost}</span></p>
+            <p className="oracle">{spanish(card.name)?.text || full?.oracleText || card.oracleText}</p>
             <p>{CARDS.has(card.name) ? <span className="ok">Implementada en el motor</span> : <span className="warn">El motor todavía no la implementa</span>}</p>
           </div>
         </div>

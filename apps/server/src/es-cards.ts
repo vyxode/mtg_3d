@@ -38,7 +38,9 @@ async function spanish(name: string, token: boolean, attempt = 1): Promise<ScryC
   if (res.status === 404) return null; // no Spanish printing
   if (!res.ok) throw new Error(`${name}: HTTP ${String(res.status)}`);
   const body = (await res.json()) as { data: ScryCard[] };
-  return body.data.find((c) => c.lang === 'es') ?? null;
+  // Newest Spanish printing whose name is actually printed in Spanish (some entries only carry the English data).
+  const translated = (c: ScryCard) => !!(c.printed_name ?? c.card_faces?.[0]?.printed_name);
+  return body.data.find((c) => c.lang === 'es' && translated(c)) ?? body.data.find((c) => c.lang === 'es') ?? null;
 }
 
 async function main(): Promise<void> {
