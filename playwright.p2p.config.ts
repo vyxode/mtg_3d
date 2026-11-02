@@ -7,7 +7,7 @@ const live = process.env.PAGES_URL;
 
 export default defineConfig({
   testDir: 'e2e',
-  testMatch: ['two-players.spec.ts', 'click-to-play.spec.ts'],
+  testMatch: ['two-players.spec.ts', 'click-to-play.spec.ts', 'full-game.spec.ts'],
   timeout: 90_000,
   use: { channel: 'chrome', baseURL: live ?? 'http://localhost:5175', screenshot: 'only-on-failure' },
   webServer: live ? [] : {

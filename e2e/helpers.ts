@@ -8,11 +8,11 @@ async function clickIfVisible(page: Page, name: string | RegExp): Promise<boolea
 }
 
 /** Ana creates a room, Beto joins with the code, both pick decks and keep: Ana has priority in her first main phase. */
-export async function startGame(browser: Browser): Promise<{ ana: Page; beto: Page; errors: string[] }> {
+export async function startGame(browser: Browser, deck?: string): Promise<{ ana: Page; beto: Page; errors: string[] }> {
   const ana = await (await browser.newContext()).newPage();
   const beto = await (await browser.newContext()).newPage();
   const errors: string[] = [];
-  ana.on('pageerror', (e) => { errors.push(e.message); });
+  for (const p of [ana, beto]) p.on('pageerror', (e) => { errors.push(e.message); });
 
   await ana.goto('./');
   await ana.getByLabel('Tu nombre').fill('Ana');
@@ -26,8 +26,9 @@ export async function startGame(browser: Browser): Promise<{ ana: Page; beto: Pa
   await beto.getByRole('button', { name: 'Unirse' }).click();
   await expect(ana.getByText('Rival: Beto')).toBeVisible();
 
+  if (deck) await ana.getByLabel('Mazo').selectOption(deck);
   await ana.getByRole('button', { name: 'Elegir mazo' }).click();
-  await beto.getByLabel('Mazo').selectOption({ index: 1 });
+  await beto.getByLabel('Mazo').selectOption(deck ?? { index: 1 });
   await beto.getByRole('button', { name: 'Elegir mazo' }).click();
 
   // Whoever was chosen at random decides who starts: Ana starts either way.
