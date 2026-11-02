@@ -4,6 +4,7 @@ import type { GameEvent, LegalAction, ManaType, ObjectId, PendingDecision, Playe
 import type { GameUpdate, RoomState } from '@mtg3d/protocol';
 import { autopay } from './autopay';
 import { ask, cardImage } from './net';
+import { ManaPips } from './ManaPips';
 
 // three.js is most of the bundle: load it only when the 3D table is shown.
 const Table3D = lazy(() => import('./table/Table3D').then((m) => ({ default: m.Table3D })));
@@ -98,56 +99,96 @@ export function Game({ room, update, onError }: Props) {
 
   const battlefield = (p: PlayerId) => view.zones.battlefield.map((id) => view.objects[id]).filter((o): o is VisibleObject => o?.controller === p);
 
+  const hand = view.zones.hand.map((id) => view.objects[id]).filter((o): o is VisibleObject => !!o);
+  const concede = () => { if (confirm('¿Conceder la partida? Tu rival gana.')) void ask('game:input', { concede: true }); };
+
   return (
     <TableContext.Provider value={link}>
-    <main className="game">
-      <section className="status">
-        <span>Turno {view.turn.number} · {nameOf(view.turn.active)} · <b>{STEP_NAMES[view.turn.step]}</b></span>
-        <FullControl room={room} />
-        <button onClick={switchMode}>{mode === '3d' ? 'Mesa 2D' : 'Mesa 3D'}</button>
-        {!view.result && <button className="danger" onClick={() => { if (confirm('¿Conceder la partida?')) void ask('game:input', { concede: true }); }}>Conceder</button>}
-      </section>
+    <main className={`game mode-${mode}`}>
+      <PlayerBar view={view} p={opp} name={nameOf(opp)} active={view.turn.active === opp} away={room.seats[opp]?.connected === false} />
+      <PhaseTrack view={view} whose={view.turn.active === me ? 'juegas tú' : `juega ${nameOf(view.turn.active)}`} />
 
       {!view.result && room.seats[opp]?.connected === false && (
-        <p className="banner">{nameOf(opp)} se ha desconectado. Si no vuelve en 15 minutos, la partida será tuya.</p>
+        <p className="banner warn" role="status">{nameOf(opp)} se ha desconectado. Si no vuelve en 15 minutos, la partida será tuya.</p>
       )}
       {view.result && (
-        <p className="banner">{view.result.winner === null ? 'Empate.' : view.result.winner === me ? '¡Has ganado!' : `Ha ganado ${nameOf(view.result.winner)}.`}</p>
+        <p className={`banner ${view.result.winner === me ? 'win' : 'loss'}`} role="status">
+          {view.result.winner === null ? 'Empate.' : view.result.winner === me ? '¡Has ganado!' : `Ha ganado ${nameOf(view.result.winner)}.`}
+        </p>
       )}
 
-      <PlayerBar view={view} p={opp} name={nameOf(opp)} />
-      {mode === '2d' && <Zone title={`Campo de ${nameOf(opp)}`} cards={battlefield(opp)} selected={chosen} onClick={onCardClick} />}
-      {mode === '3d' && <Suspense fallback={<div className="table3d"><p className="muted">Cargando la mesa 3D…</p></div>}><Table3D view={view} events={update.events} usable={usable} selected={chosen} onCardClick={onCardClick} /></Suspense>}
-
-      <section className="middle">
-        <div className="stack">
-          <h3>Pila</h3>
-          {view.stack.length === 0 && <p className="muted">Vacía</p>}
-          {[...view.stack].reverse().map((e) => (
-            <div key={e.id} className="stack-item">
-              <b>{e.card}</b>{e.kind === 'ability' ? ' — habilidad' : ''} ({nameOf(e.controller)})
-              {e.targets.length > 0 && <> → {e.targets.map((t) => targetLabel(t, view, nameOf)).join(', ')}</>}
-            </div>
-          ))}
-        </div>
-        <Decision view={view} mine={mine} pendingOther={pending && !mine ? pending : null} nameOf={nameOf} send={send} onError={onError} />
-        <div className="log">
-          <h3>Registro</h3>
-          {log.map((l, i) => <div key={`${String(i)}-${l}`}>{l}</div>)}
-        </div>
+      <section className="arena" aria-label="Mesa">
+        {mode === '3d'
+          ? <Suspense fallback={<div className="table3d loading"><p>Preparando la mesa…</p></div>}><Table3D view={view} events={update.events} usable={usable} selected={chosen} onCardClick={onCardClick} /></Suspense>
+          : (<div className="table2d">
+              <Zone title={`Campo de ${nameOf(opp)}`} cards={battlefield(opp)} selected={chosen} onClick={onCardClick} />
+              <Zone title="Tu campo" cards={battlefield(me)} selected={chosen} onClick={onCardClick} />
+              <Zone title="Tu mano" cards={hand} selected={chosen} onClick={onCardClick} />
+              <div className="graveyards">
+                {(['p1', 'p2'] as const).map((p) => (
+                  <p key={p}><b>Cementerio de {p === me ? 'ti' : nameOf(p)}:</b> {view.zones.graveyard[p].map((id) => view.objects[id]?.card).join(', ') || 'vacío'}</p>
+                ))}
+                {view.zones.exile.length > 0 && <p><b>Exilio:</b> {view.zones.exile.map((id) => view.objects[id]?.card).join(', ')}</p>}
+              </div>
+            </div>)}
       </section>
 
-      {mode === '2d' && <Zone title="Tu campo" cards={battlefield(me)} selected={chosen} onClick={onCardClick} />}
-      <PlayerBar view={view} p={me} name={`${nameOf(me)} (tú)`} />
-      {mode === '2d' && <Zone title="Tu mano" cards={view.zones.hand.map((id) => view.objects[id]).filter((o): o is VisibleObject => !!o)} selected={chosen} onClick={onCardClick} />}
-      <details>
-        <summary>Cementerios</summary>
-        {(['p1', 'p2'] as const).map((p) => (
-          <p key={p}>{nameOf(p)}: {view.zones.graveyard[p].map((id) => view.objects[id]?.card).join(', ') || '—'}</p>
-        ))}
-      </details>
+      <section className="console">
+        <div className="stack" aria-label="Pila">
+          <h3>Pila</h3>
+          {view.stack.length === 0 && <p className="muted">Vacía</p>}
+          <ol>
+            {[...view.stack].reverse().map((e) => (
+              <li key={e.id} className={e.controller === me ? 'mine' : 'theirs'}>
+                <b>{e.card}</b>{e.kind === 'ability' ? <span className="muted"> (habilidad)</span> : null}
+                {e.targets.length > 0 && <span className="muted"> sobre {e.targets.map((t) => targetLabel(t, view, nameOf)).join(', ')}</span>}
+              </li>
+            ))}
+          </ol>
+        </div>
+        <Decision view={view} mine={mine} pendingOther={pending && !mine ? pending : null} nameOf={nameOf} send={send} onError={onError} />
+        <details className="log" open>
+          <summary><h3>Registro</h3></summary>
+          <ul>{log.map((l, i) => <li key={`${String(i)}-${l}`}>{l}</li>)}</ul>
+        </details>
+      </section>
+
+      <PlayerBar view={view} p={me} name={`${nameOf(me)} (tú)`} active={view.turn.active === me}>
+        <span className="controls">
+          <FullControl room={room} />
+          <button className="quiet" onClick={switchMode}>{mode === '3d' ? 'Mesa 2D' : 'Mesa 3D'}</button>
+          {!view.result && <button className="quiet danger" onClick={concede}>Conceder</button>}
+        </span>
+      </PlayerBar>
     </main>
     </TableContext.Provider>
+  );
+}
+
+const TRACK: [Step, string][] = [
+  ['untap', 'Enderezar'], ['upkeep', 'Mantenimiento'], ['draw', 'Robar'], ['main1', 'Principal 1'],
+  ['beginCombat', 'Combate'], ['declareAttackers', 'Atacantes'], ['declareBlockers', 'Bloqueadores'], ['combatDamage', 'Daño'], ['endCombat', 'Fin del combate'],
+  ['main2', 'Principal 2'], ['end', 'Final'], ['cleanup', 'Limpieza'],
+];
+const COMBAT: ReadonlySet<Step> = new Set(['beginCombat', 'declareAttackers', 'declareBlockers', 'combatDamage', 'endCombat']);
+
+/** The turn structure as on a playmat: the current step lit, the ones already done dimmed. */
+function PhaseTrack({ view, whose }: { view: PlayerView; whose: string }) {
+  const now = TRACK.findIndex(([s]) => s === view.turn.step);
+  const current = useRef<HTMLLIElement>(null);
+  useEffect(() => { current.current?.scrollIntoView({ block: 'nearest', inline: 'center', behavior: 'smooth' }); }, [now]);
+  return (
+    <nav className="status phase-track" aria-label="Fases del turno">
+      {view.turn.number === 0 ? <span className="turn"><b>Antes de empezar:</b> <span>quién empieza y manos iniciales</span></span> : <>
+      <span className="turn"><b>Turno {view.turn.number}:</b> <span>{whose}</span></span>
+      <ol>
+        {TRACK.map(([step, short], i) => (
+          <li key={step} ref={i === now ? current : undefined} className={`${i < now ? 'done' : i === now ? 'now' : ''}${COMBAT.has(step) ? ' combat' : ''}`} aria-current={i === now ? 'step' : undefined}>
+            {i === now ? STEP_NAMES[step] : short}
+          </li>
+        ))}
+      </ol></>}
+    </nav>
   );
 }
 
@@ -159,16 +200,16 @@ function FullControl({ room }: { room: RoomState }) {
   );
 }
 
-function PlayerBar({ view, p, name }: { view: PlayerView; p: PlayerId; name: string }) {
+function PlayerBar({ view, p, name, active, away, children }: { view: PlayerView; p: PlayerId; name: string; active: boolean; away?: boolean; children?: React.ReactNode }) {
   const pl = view.players[p];
-  const mana = Object.entries(pl.manaPool).filter(([, n]) => n > 0).map(([c, n]) => `${c}×${String(n)}`).join(' ');
   return (
-    <section className="playerbar">
-      <b>{name}</b>
-      <span className="life">♥ {pl.life}</span>
-      <span>Mano {pl.handSize}</span>
-      <span>Biblioteca {pl.librarySize}</span>
-      {mana && <span>Maná: {mana}</span>}
+    <section className={`playerbar${active ? ' active' : ''}${p === view.viewer ? ' me' : ' them'}`} aria-label={name}>
+      <span className="who">{name}{away && <span className="away"> desconectado</span>}</span>
+      <span className="life" aria-label={`${String(pl.life)} vidas`}>{pl.life}</span>
+      <span className="count">Mano <b>{pl.handSize}</b></span>
+      <span className="count">Biblioteca <b>{pl.librarySize}</b></span>
+      <ManaPips pool={pl.manaPool} />
+      {children}
     </section>
   );
 }
@@ -232,6 +273,7 @@ function MyDecision({ view, d, nameOf, send, onError }: { view: PlayerView; d: P
     case 'mulligan':
       return (<>
         <h3>Mano inicial{d.mulligans > 0 ? ` (mulligan ${String(d.mulligans)})` : ''}</h3>
+        <p>Tu mano está en la mesa. Con mulligan robas siete nuevas y, al quedártela, pones {d.mulligans + 1 === 1 ? 'una carta' : `${String(d.mulligans + 1)} cartas`} al fondo.</p>
         <button onClick={() => void send({ kind: 'keep' })}>Quedármela</button>
         <button onClick={() => void send({ kind: 'mulligan' })}>Mulligan</button>
       </>);

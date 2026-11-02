@@ -24,7 +24,7 @@ export async function startGame(browser: Browser, deck?: string): Promise<{ ana:
   await beto.getByLabel('Tu nombre').fill('Beto');
   await beto.getByLabel('Código de invitación').fill(code);
   await beto.getByRole('button', { name: 'Unirse' }).click();
-  await expect(ana.getByText('Rival: Beto')).toBeVisible();
+  await expect(ana.locator('.seat-name', { hasText: 'Beto' })).toBeVisible();
 
   if (deck) await ana.getByLabel('Mazo').selectOption(deck);
   await ana.getByRole('button', { name: 'Elegir mazo' }).click();

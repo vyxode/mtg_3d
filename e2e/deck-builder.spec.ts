@@ -11,7 +11,7 @@ test('builds a deck from a pasted list, edits it and offers it in the room', asy
   // Without the Scryfall catalog on the server, search falls back to the implemented cards.
   await page.getByPlaceholder('Nombre').fill('Lightning');
   await page.getByRole('button', { name: 'Buscar', exact: true }).click();
-  await page.getByTitle('Añadir al mazo principal').first().click();
+  await page.getByTitle('Añadir al mazo').first().click();
   await expect(page.getByText('Mazo válido y jugable.')).toBeVisible();
   await expect(page.getByText('4× Lightning Bolt')).toBeVisible();
 
@@ -21,5 +21,5 @@ test('builds a deck from a pasted list, edits it and offers it in the room', asy
   await page.getByRole('button', { name: 'Crear sala' }).click();
   await page.getByLabel('Mazo').selectOption('Mío: Rayos');
   await page.getByRole('button', { name: 'Elegir mazo' }).click();
-  await expect(page.getByRole('button', { name: 'Listo, esperando al rival' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Listo: esperando al rival' })).toBeVisible();
 });

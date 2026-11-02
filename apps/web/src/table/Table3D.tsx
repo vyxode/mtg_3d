@@ -3,6 +3,7 @@ import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import { Euler, Quaternion, Vector3, type Group } from 'three';
 import type { GameEvent, ObjectId, PlayerView } from '@mtg3d/engine';
 import { cardImage } from '../net';
+import { CardImage } from '../CardImage';
 import { CARD_H, CARD_W, layoutTable, libraryPos, type Placement } from './layout';
 import { BADGE_ASPECT, backTexture, badgeTexture, cardTexture, onTextureLoaded } from './textures';
 
@@ -42,17 +43,17 @@ export function Table3D({ view, events, usable, selected, onCardClick }: Props) 
   return (
     <div className="table3d">
       <Canvas frameloop="demand" flat dpr={[1, 2]} camera={{ fov: 40, near: 0.5, far: 200, position: CAMERAS.jugador.pos.toArray() }}>
-        <color attach="background" args={['#0f1113']} />
+        <color attach="background" args={['#10241f']} />
         <CameraRig name={camera} />
         <Redraw />
         <mesh rotation-x={-Math.PI / 2} position-y={-0.01}>
           <planeGeometry args={[34, 26]} />
-          <meshBasicMaterial color="#1a2b22" />
+          <meshBasicMaterial color="#163029" />
         </mesh>
         {[1, -1].map((s) => (
           <mesh key={s} rotation-x={-Math.PI / 2} position={[0, -0.005, s * 4.8]}>
             <planeGeometry args={[24, 8]} />
-            <meshBasicMaterial color={s === 1 ? '#203629' : '#22302a'} />
+            <meshBasicMaterial color={s === 1 ? '#1f3d36' : '#1b3631'} />
           </mesh>
         ))}
         {placements.map((p) => (
@@ -72,7 +73,7 @@ export function Table3D({ view, events, usable, selected, onCardClick }: Props) 
       </div>
       {shown?.card && (
         <aside className="hud-preview" aria-live="polite">
-          <img src={cardImage(shown.card)} alt={shown.card} />
+          <CardImage name={shown.card} src={cardImage(shown.card)} key={shown.card} />
           <p><b>{shown.card}</b>{shown.badges.length > 0 && <> · {shown.badges.join(' · ')}</>}</p>
         </aside>
       )}
@@ -87,15 +88,25 @@ function Redraw() {
   return null;
 }
 
+const want = new Vector3();
+const reducedMotion = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
+/** How fast things glide to their place; with reduced motion they jump there. */
+const easing = (dt: number, rate: number) => (reducedMotion ? 1 : 1 - Math.exp(-dt * rate));
+
 function CameraRig({ name }: { name: CameraName }) {
   const look = useRef(CAMERAS.jugador.look.clone());
+  const aspect = useThree((s) => s.size.width / Math.max(1, s.size.height));
+  const invalidate = useThree((s) => s.invalidate);
+  useEffect(() => { invalidate(); }, [aspect, invalidate]);
   useFrame(({ camera, invalidate }, dt) => {
     const target = CAMERAS[name];
-    const k = 1 - Math.exp(-dt * 6);
-    camera.position.lerp(target.pos, k);
+    // A narrow (portrait) view backs the camera off so the whole width of the table still fits.
+    want.copy(target.pos).sub(target.look).multiplyScalar(Math.min(2.4, Math.max(1, 1.45 / aspect))).add(target.look);
+    const k = easing(dt, 6);
+    camera.position.lerp(want, k);
     look.current.lerp(target.look, k);
     camera.lookAt(look.current);
-    if (camera.position.distanceTo(target.pos) > 0.01) invalidate();
+    if (camera.position.distanceTo(want) > 0.01) invalidate();
   });
   return null;
 }
@@ -123,7 +134,7 @@ function Card3D({ p, spawn, positions, onHover, onPick }: {
   useFrame(({ invalidate }, dt) => {
     const g = ref.current;
     if (!g) return;
-    const k = 1 - Math.exp(-dt * 10);
+    const k = easing(dt, 10);
     g.position.lerp(target, k);
     g.quaternion.slerp(targetQ, k);
     if (g.position.distanceToSquared(target) > 1e-5 || tmpQ.copy(g.quaternion).angleTo(targetQ) > 1e-3) invalidate();

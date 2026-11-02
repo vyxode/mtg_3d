@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState, type DragEvent } from 'react';
 import { CARDS, DEFS } from '@mtg3d/cards';
 import { manaValue, type ManaCost } from '@mtg3d/engine';
 import { cardImage } from './net';
+import { CardImage } from './CardImage';
 import {
   FORMATS, TYPE_GROUPS, colorSymbols, countOf, exportDeckText, frontName, loadDecks, manaCurve, newDeck, parseDeckText, saveDecks, typeGroup, validateDeck,
   type Deck, type DeckCard, type Format,
@@ -45,6 +46,8 @@ export function DeckBuilder() {
   const change = (fn: (d: Deck) => Deck) => { if (deck) update(decks.map((d) => (d.id === deck.id ? { ...fn(d), updatedAt: new Date().toISOString() } : d))); };
 
   useEffect(() => { void fetch('/api/status').then((r) => r.json()).then((s: { cards: number }) => { setOnline(s.cards > 0); }).catch(() => { setOnline(false); }); }, []);
+  // Show cards right away instead of an empty grid.
+  useEffect(() => { if (online !== null) void search(0); }, [online]); // once, when we know where cards come from
 
   const search = async (page = 0) => {
     if (!online) {
@@ -66,6 +69,12 @@ export function DeckBuilder() {
   };
 
   const add = (c: DeckCard, board: 'main' | 'side', delta: number) => {
+    if (!deck) { // the first card added starts a deck
+      const d = { ...newDeck(), [board]: { [c.name]: 1 }, info: { [c.name]: c } };
+      update([d, ...decks]);
+      setCurrentId(d.id);
+      return;
+    }
     change((d) => {
       const counts = { ...d[board] };
       counts[c.name] = Math.max(0, (counts[c.name] ?? 0) + delta);
@@ -114,7 +123,7 @@ export function DeckBuilder() {
           <button className={tab === 'search' ? 'primary' : ''} onClick={() => { setTab('search'); }}>Buscar cartas</button>
           <button className={tab === 'sets' ? 'primary' : ''} onClick={() => { setTab('sets'); }} disabled={!online}>Expansiones</button>
         </div>
-        {online === false && <p className="muted">Catálogo completo no cargado (ejecuta <code>pnpm cards:sync</code> en el servidor): se muestran las cartas implementadas.</p>}
+        {online === false && <p className="muted">Se muestran las cartas que el juego ya sabe jugar.</p>}
         {tab === 'sets' ? <SetExplorer onPick={(code) => { setFilters({ ...EMPTY, set: code }); setTab('search'); }} /> : (<>
           <form className="filters" onSubmit={(e) => { e.preventDefault(); void search(0); }}>
             <input placeholder="Nombre" value={filters.name} onChange={(e) => { setFilters({ ...filters, name: e.target.value }); }} />
@@ -135,12 +144,12 @@ export function DeckBuilder() {
           <div className="results">
             {results.cards.map((c) => (
               <div key={c.name} className="result" draggable onDragStart={(e) => { e.dataTransfer.setData('text/plain', c.name); }}>
-                <img src={c.image ?? cardImage(c.name)} alt="" loading="lazy" onClick={() => { setDetail(c); }} />
+                <CardImage name={c.name} src={c.image ?? cardImage(c.name)} loading="lazy" onClick={() => { setDetail(c); }} />
                 <button className="link result-name" onClick={() => { setDetail(c); }}>{c.name}</button>
                 <div className="result-actions">
                   {!CARDS.has(c.name) && <span className="badge" title="El motor todavía no implementa esta carta">no jugable</span>}
-                  <button disabled={!deck} onClick={() => { add(c, 'main', 1); }} title="Añadir al mazo principal">+</button>
-                  <button disabled={!deck} onClick={() => { add(c, 'side', 1); }} title="Añadir al banquillo">+B</button>
+                  <button onClick={() => { add(c, 'main', 1); }} title="Añadir al mazo" aria-label={`Añadir ${c.name} al mazo`}>+ Mazo</button>
+                  <button onClick={() => { add(c, 'side', 1); }} title="Añadir al banquillo" aria-label={`Añadir ${c.name} al banquillo`}>+ Banq.</button>
                 </div>
               </div>
             ))}
@@ -154,7 +163,7 @@ export function DeckBuilder() {
         {deck ? <DeckView deck={deck} change={change} add={add} onDropSide={onDrop('side')}
           onDuplicate={() => { const d = { ...structuredClone(deck), id: crypto.randomUUID(), name: `${deck.name} (copia)` }; update([d, ...decks]); setCurrentId(d.id); }}
           onDelete={() => { if (confirm(`¿Borrar ${deck.name}?`)) { const next = decks.filter((d) => d.id !== deck.id); update(next); setCurrentId(next[0]?.id ?? null); } }} />
-          : <p className="muted">Crea o elige un mazo.</p>}
+          : <p className="muted">Añade una carta con «+ Mazo» y se creará un mazo nuevo, o importa una lista.</p>}
       </section>
 
       {detail && <CardDetail card={detail} onClose={() => { setDetail(null); }} onPickPrinting={(image) => { change((d) => (d.info[detail.name] ? { ...d, info: { ...d.info, [detail.name]: { ...(d.info[detail.name] as DeckCard), image } } } : d)); setDetail(null); }} />}
@@ -243,7 +252,7 @@ function CardDetail({ card, onClose, onPickPrinting }: { card: Result; onClose: 
     <div className="modal" role="dialog" aria-label={card.name} onClick={onClose}>
       <div className="panel" onClick={(e) => { e.stopPropagation(); }}>
         <div className="row">
-          <img className="big-card" src={card.image ?? cardImage(card.name)} alt={card.name} />
+          <CardImage className="big-card" name={card.name} src={card.image ?? cardImage(card.name)} />
           <div>
             <h1>{card.name}</h1>
             <p>{card.typeLine} · {card.manaCost}</p>
