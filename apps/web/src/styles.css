@@ -471,3 +471,10 @@ kbd { font: .72rem var(--sans); opacity: .7; margin-left: 6px; border: 1px solid
   .game.mode-3d > .phase-track { top: 12px; left: calc((100% - 392px) / 2); transform: translateX(-50%); }
   .game.mode-3d .hud-preview { top: 84px; }
 }
+
+/* ---------- The room around the table: a soft vignette, like the edge of the lamp's light ---------- */
+.table3d::after {
+  content: ''; position: absolute; inset: 0; pointer-events: none; z-index: 0;
+  background: radial-gradient(ellipse 75% 70% at 50% 55%, transparent 55%, rgba(0, 0, 0, .55) 100%);
+}
+.table3d > :not(div:first-child) { z-index: 1; }

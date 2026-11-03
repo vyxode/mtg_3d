@@ -1,5 +1,5 @@
 import { CanvasTexture, ImageLoader, RepeatWrapping, SRGBColorSpace, Texture } from 'three';
-import { displayName } from '@mtg3d/cards';
+import { CARDS, displayName, spanish } from '@mtg3d/cards';
 import { cardImage } from '../net';
 
 /** Scryfall "normal" images are 488 × 680; placeholders use the same size so the image can replace them in place. */
@@ -33,23 +33,72 @@ function wrap(ctx: CanvasRenderingContext2D, text: string, x: number, y: number,
     if (ctx.measureText(next).width > maxWidth && line) { ctx.fillText(line, x, y); y += lineHeight; line = word; } else line = next;
   }
   ctx.fillText(line, x, y);
+  return y;
 }
 
-/** Shown while the image loads, and kept if Scryfall cannot be reached: the card's name, never a wrong picture. */
+const FRAME: Record<string, string> = { W: '#d9cfae', U: '#3a6ea8', B: '#4a3f3a', R: '#a8442f', G: '#3b7448', multi: '#b8913f', none: '#857a68' };
+const TYPE_ES: Record<string, string> = { Creature: 'Criatura', Land: 'Tierra', Instant: 'Instantáneo', Sorcery: 'Conjuro', Enchantment: 'Encantamiento', Artifact: 'Artefacto', Planeswalker: 'Planeswalker', Battle: 'Batalla' };
+
+/** Shown while the image loads, and kept if Scryfall cannot be reached: a plain card frame with the card's own data, never a wrong picture. */
 function placeholder(name: string): HTMLCanvasElement {
   const [c, ctx] = canvas(IMG_W, IMG_H);
-  const g = ctx.createLinearGradient(0, 0, IMG_W, IMG_H);
-  g.addColorStop(0, '#1b1916');
-  g.addColorStop(1, '#0d0c0b');
-  ctx.fillStyle = g;
-  ctx.fillRect(0, 0, IMG_W, IMG_H);
-  ctx.strokeStyle = '#4a4234';
-  ctx.lineWidth = 6;
-  ctx.strokeRect(22, 22, IMG_W - 44, IMG_H - 44);
+  const def = CARDS.get(name);
+  const es = spanish(name);
+  const cost = def?.manaCost;
+  const colors = cost ? (['W', 'U', 'B', 'R', 'G'] as const).filter((k) => (cost[k] ?? 0) > 0) : [];
+  const tint = FRAME[colors.length > 1 ? 'multi' : colors[0] ?? 'none'] ?? '#857a68';
+  ctx.fillStyle = '#0b0a09'; // black border
+  ctx.beginPath(); ctx.roundRect(0, 0, IMG_W, IMG_H, 24); ctx.fill();
+  const frame = ctx.createLinearGradient(0, 0, IMG_W, IMG_H);
+  frame.addColorStop(0, tint);
+  frame.addColorStop(1, '#1a1612');
+  ctx.fillStyle = frame;
+  ctx.beginPath(); ctx.roundRect(20, 20, IMG_W - 40, IMG_H - 40, 10); ctx.fill();
+  const bar = (y: number, h: number, x = 34, w = IMG_W - 68) => {
+    const g = ctx.createLinearGradient(0, y, 0, y + h);
+    g.addColorStop(0, '#f3ead6'); g.addColorStop(1, '#cfc2a4');
+    ctx.fillStyle = g;
+    ctx.beginPath(); ctx.roundRect(x, y, w, h, 12); ctx.fill();
+  };
+  // Title bar: name on the left, mana cost on the right.
+  bar(34, 52);
+  const pips: string[] = cost ? [...(cost.generic ? [String(cost.generic)] : []), ...(['W', 'U', 'B', 'R', 'G', 'C'] as const).flatMap((k) => Array<string>(cost[k] ?? 0).fill(k))] : [];
+  const PIP: Record<string, string> = { W: '#f6f0d8', U: '#a9d1ee', B: '#b9aea8', R: '#efa184', G: '#9fd0a6' };
+  pips.forEach((s, i) => {
+    const x = IMG_W - 58 - (pips.length - 1 - i) * 34;
+    ctx.fillStyle = PIP[s] ?? '#cbc3b6';
+    ctx.beginPath(); ctx.arc(x, 60, 15, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#1a1612'; ctx.font = '700 20px "Alegreya Sans", system-ui, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText(s, x, 61);
+  });
+  ctx.fillStyle = '#1a1612'; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+  ctx.font = '700 28px Alegreya, Georgia, serif';
+  ctx.fillText(displayName(name), 50, 61, IMG_W - 110 - pips.length * 34);
+  // Art box: no art is drawn (it would be a wrong picture); a soft gradient with the frame colour.
+  const art = ctx.createRadialGradient(IMG_W / 2, 220, 20, IMG_W / 2, 220, 260);
+  art.addColorStop(0, tint); art.addColorStop(1, '#0e0c0a');
+  ctx.fillStyle = art;
+  ctx.fillRect(42, 96, IMG_W - 84, 270);
+  ctx.strokeStyle = 'rgba(0,0,0,.6)'; ctx.lineWidth = 4; ctx.strokeRect(42, 96, IMG_W - 84, 270);
+  // Type line.
+  bar(374, 44);
+  const type = es?.type || [...(def?.supertypes ?? []).map((s) => (s === 'Legendary' ? 'Legendario' : 'Básica')), ...(def?.types ?? []).map((t) => TYPE_ES[t] ?? t)].join(' ');
+  ctx.fillStyle = '#1a1612'; ctx.font = '600 22px Alegreya, Georgia, serif';
+  ctx.fillText(type, 50, 397, IMG_W - 100);
+  // Text box with the Spanish rules text.
   ctx.fillStyle = '#efe6d2';
-  ctx.font = '700 46px Alegreya, Georgia, serif';
-  ctx.textAlign = 'center';
-  wrap(ctx, name, IMG_W / 2, 120, IMG_W - 80, 54);
+  ctx.fillRect(42, 426, IMG_W - 84, 206);
+  ctx.fillStyle = '#241e17'; ctx.textBaseline = 'alphabetic'; ctx.font = '19px Alegreya, Georgia, serif';
+  ctx.save();
+  ctx.beginPath(); ctx.rect(42, 426, IMG_W - 84, 176); ctx.clip(); // long texts are cut, the full text is in the preview
+  let y = 454;
+  for (const para of (es?.text ?? '').split('\n')) y = wrap(ctx, para, 54, y, IMG_W - 108, 22) + 28;
+  ctx.restore();
+  if (def?.power !== undefined) { // power/toughness box
+    bar(604, 46, IMG_W - 140, 98);
+    ctx.fillStyle = '#1a1612'; ctx.font = '700 28px "Alegreya Sans", system-ui, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText(`${String(def.power)}/${String(def.toughness)}`, IMG_W - 91, 628);
+  }
   return c;
 }
 
@@ -63,7 +112,7 @@ export function cardTexture(name: string): Texture {
     cache.set(name, hit);
     return hit;
   }
-  const tex = new Texture<HTMLCanvasElement | HTMLImageElement>(placeholder(displayName(name)));
+  const tex = new Texture<HTMLCanvasElement | HTMLImageElement>(placeholder(name));
   tex.needsUpdate = true;
   tex.colorSpace = SRGBColorSpace;
   tex.anisotropy = 4;

@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type RefObject } from 'react';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
-import { OrbitControls, QuadraticBezierLine } from '@react-three/drei';
-import { AdditiveBlending, MathUtils, Quaternion, Vector3, type Group, type MeshBasicMaterial } from 'three';
+import { Environment, Lightformer, OrbitControls, QuadraticBezierLine } from '@react-three/drei';
+import { AdditiveBlending, ExtrudeGeometry, MathUtils, Quaternion, Shape, Vector3, type Group, type Mesh, type MeshBasicMaterial } from 'three';
 import type { GameEvent, ObjectId, PlayerId, PlayerView } from '@mtg3d/engine';
 import { displayName } from '@mtg3d/cards';
 import { cardImage } from '../net';
@@ -9,6 +9,8 @@ import { CardImage } from '../CardImage';
 import { CARD_H, CARD_W, layoutTable, libraryPos, type Placement } from './layout';
 import { BADGE_ASPECT, MAT_D, MAT_W, backTexture, badgeTexture, cardTexture, matTexture, onTextureLoaded, roundedCorners, woodTexture } from './textures';
 
+/** Each player's cards are in coloured sleeves, as at a real table. */
+const SLEEVES = { me: '#7a2a2c', them: '#284a72' } as const;
 const HIGHLIGHT_COLORS = { playable: '#f0c060', selected: '#7fe08f', attacking: '#ff6a45', blocking: '#5fb0f0' } as const; // styles.css tokens, brightened to glow
 
 /** Your seat: a little above and behind your side of the table, looking at the middle. */
@@ -62,8 +64,8 @@ export function Table3D({ view, events, usable, selected, onCardClick, names }: 
     <div className="table3d">
       {/* Renders on demand: only while something moves, glows or loads, so a quiet table costs nothing. */}
       <Canvas frameloop="demand" shadows dpr={[1, 1.75]} camera={{ fov: 42, near: 0.5, far: 200, position: SEAT.toArray() }} gl={{ antialias: true }}>
-        <color attach="background" args={['#0b1512']} />
-        <fog attach="fog" args={['#0b1512', 46, 95]} />
+        <color attach="background" args={['#070b0a']} />
+        <fog attach="fog" args={['#070b0a', 40, 80]} />
         <FitSeat />
         <Redraw />
         <OrbitControls ref={controls as RefObject<never>} target={LOOK} enablePan={false} enableDamping dampingFactor={0.08}
@@ -72,7 +74,7 @@ export function Table3D({ view, events, usable, selected, onCardClick, names }: 
         <Mat side={1} name={names[me]} tint="#1f4a40" />
         <Mat side={-1} name={names[opp]} tint="#2a3f55" />
         {placements.map((p) => (
-          <Card3D key={p.key} p={p} spawn={spawnOf} positions={positions.current} hitAt={hits.get(p.key)}
+          <Card3D key={p.key} p={p} sleeve={p.owner === me ? SLEEVES.me : SLEEVES.them} spawn={spawnOf} positions={positions.current} hitAt={hits.get(p.key)}
             clickable={usable.has(p.key) || selected.has(p.key)}
             onHover={(on) => { setHover(on && p.card ? p : null); }}
             onPick={() => {
@@ -126,14 +128,19 @@ function Room() {
   const wood = woodTexture();
   return (
     <>
-      <hemisphereLight args={['#ffe9c4', '#20140c', 0.55]} />
-      <directionalLight position={[7, 22, 10]} intensity={2.1} color="#fff1d6" castShadow
-        shadow-mapSize={[1536, 1536]} shadow-bias={-0.0004} shadow-normalBias={0.02}
-        shadow-camera-left={-20} shadow-camera-right={20} shadow-camera-top={16} shadow-camera-bottom={-16} shadow-camera-near={1} shadow-camera-far={60} />
-      <pointLight position={[0, 9, 2]} intensity={60} distance={30} decay={1.6} color="#ffc98a" />
+      <hemisphereLight args={['#ffe9c4', '#1a110a', 0.32]} />
+      {/* The lamp above the table: a warm pool of light that fades out towards the room. */}
+      <spotLight position={[2, 30, 7]} angle={0.66} penumbra={0.9} intensity={3.4} decay={0} color="#ffeccc" castShadow
+        shadow-mapSize={[2048, 2048]} shadow-bias={-0.0003} shadow-normalBias={0.02} shadow-camera-near={10} shadow-camera-far={50} />
+      <pointLight position={[0, 7, 4]} intensity={28} distance={26} decay={1.6} color="#ffbe7a" />
+      {/* Soft reflections on the sleeves and the varnish, from a lamp and a window; no image is downloaded. */}
+      <Environment resolution={128} frames={1}>
+        <Lightformer form="rect" intensity={2.2} color="#ffe2b0" position={[0, 14, 2]} rotation-x={Math.PI / 2} scale={[16, 10, 1]} />
+        <Lightformer form="rect" intensity={0.8} color="#a8c4ff" position={[-18, 8, -10]} rotation-y={Math.PI / 3} scale={[6, 10, 1]} />
+      </Environment>
       <mesh position={[0, -0.55, 0]} receiveShadow>
-        <boxGeometry args={[42, 1, 32]} />
-        <meshStandardMaterial map={wood} roughness={0.62} metalness={0.05} />
+        <boxGeometry args={[64, 1, 44]} />
+        <meshStandardMaterial map={wood} map-repeat={[1.6, 1.1]} roughness={0.42} metalness={0.02} envMapIntensity={0.5} />
       </mesh>
     </>
   );
@@ -142,10 +149,17 @@ function Room() {
 /** A felt playmat with its zones printed; the opponent's is turned to face them. */
 function Mat({ side, name, tint }: { side: 1 | -1; name: string; tint: string }) {
   return (
-    <mesh rotation={[-Math.PI / 2, 0, side === 1 ? 0 : Math.PI]} position={[0, 0.004, side * 4.8]} receiveShadow>
-      <planeGeometry args={[MAT_W, MAT_D]} />
-      <meshStandardMaterial map={matTexture(name, tint)} roughness={0.95} />
-    </mesh>
+    <group position={[0, 0, side * 4.8]}>
+      {/* A rubber-backed mat a few millimetres thick. */}
+      <mesh position-y={-0.02} receiveShadow castShadow>
+        <boxGeometry args={[MAT_W + 0.06, 0.05, MAT_D + 0.06]} />
+        <meshStandardMaterial color="#0d0f0e" roughness={0.9} />
+      </mesh>
+      <mesh rotation={[-Math.PI / 2, 0, side === 1 ? 0 : Math.PI]} position-y={0.006} receiveShadow>
+        <planeGeometry args={[MAT_W, MAT_D]} />
+        <meshStandardMaterial map={matTexture(name, tint)} roughness={0.97} envMapIntensity={0.15} />
+      </mesh>
+    </group>
   );
 }
 
@@ -161,14 +175,29 @@ function orientation(p: Placement, faceDown = false): Quaternion {
   return q;
 }
 
-interface Tween { from: Vector3; to: Vector3; qFrom: Quaternion; qTo: Quaternion; t0: number; dur: number; arc: number }
+interface Tween { from: Vector3; to: Vector3; qFrom: Quaternion; qTo: Quaternion; t0: number; dur: number; arc: number; lands: boolean }
 
-function Card3D({ p, spawn, positions, hitAt, clickable, onHover, onPick }: {
-  p: Placement; spawn: (p: Placement) => { at: Vector3; faceDown: boolean }; positions: Map<string, Vector3>; hitAt: number | undefined;
+const SLEEVE_T = 0.026;
+/** One shared sleeve: a rounded slab a little larger than the card, with the card's faces on both sides. */
+const sleeveGeometry = (() => {
+  const w = CARD_W + 0.06, h = CARD_H + 0.06, r = 0.13;
+  const s = new Shape();
+  s.moveTo(-w / 2 + r, -h / 2);
+  s.lineTo(w / 2 - r, -h / 2); s.quadraticCurveTo(w / 2, -h / 2, w / 2, -h / 2 + r);
+  s.lineTo(w / 2, h / 2 - r); s.quadraticCurveTo(w / 2, h / 2, w / 2 - r, h / 2);
+  s.lineTo(-w / 2 + r, h / 2); s.quadraticCurveTo(-w / 2, h / 2, -w / 2, h / 2 - r);
+  s.lineTo(-w / 2, -h / 2 + r); s.quadraticCurveTo(-w / 2, -h / 2, -w / 2 + r, -h / 2);
+  return new ExtrudeGeometry(s, { depth: SLEEVE_T, bevelEnabled: false, curveSegments: 4 }).translate(0, 0, -SLEEVE_T / 2).rotateX(-Math.PI / 2);
+})();
+const LAND_FX = 0.45; // seconds of the ring a card leaves when it is put down on the table
+
+function Card3D({ p, sleeve, spawn, positions, hitAt, clickable, onHover, onPick }: {
+  p: Placement; sleeve: string; spawn: (p: Placement) => { at: Vector3; faceDown: boolean }; positions: Map<string, Vector3>; hitAt: number | undefined;
   clickable: boolean; onHover: (on: boolean) => void; onPick: () => void;
 }) {
   const ref = useRef<Group>(null);
   const glow = useRef<MeshBasicMaterial>(null);
+  const ring = useRef<Mesh>(null);
   const [hovered, setHovered] = useState(false);
   const tween = useRef<Tween | null>(null);
   const base = useRef(new Vector3()); // where the tween puts it, before hover lift and shake
@@ -194,6 +223,7 @@ function Card3D({ p, spawn, positions, hitAt, clickable, onHover, onPick }: {
     tween.current = {
       from: base.current.clone(), to, qFrom: g.quaternion.clone(), qTo: orientation(place), t0: now(),
       dur: reducedMotion ? 0 : MathUtils.clamp(0.28 + dist * 0.035, 0.3, 0.85), arc: Math.min(2.2, dist * 0.18),
+      lands: dist > 2.5 && place.tilt === 0 && !place.inHand, // put down on the table from somewhere else
     };
   }, [x, y, z, yaw, tilt, roll]); // only a change of place starts a new glide
 
@@ -205,6 +235,15 @@ function Card3D({ p, spawn, positions, hitAt, clickable, onHover, onPick }: {
     const e = easeInOut(t);
     base.current.lerpVectors(tw.from, tw.to, e);
     base.current.y += tw.arc * Math.sin(Math.PI * t);
+    // Put down with a little weight: it comes in fast from above and leaves a ring in the felt.
+    const sinceLand = now() - tw.t0 - tw.dur;
+    const landing = tw.lands && tw.dur > 0 && sinceLand > -0.05 && sinceLand < LAND_FX;
+    if (ring.current) {
+      ring.current.visible = landing && sinceLand > 0;
+      const k = MathUtils.clamp(sinceLand / LAND_FX, 0, 1);
+      ring.current.scale.setScalar(1 + k * 0.45);
+      (ring.current.material as MeshBasicMaterial).opacity = 0.55 * (1 - k) ** 2;
+    }
     g.quaternion.slerpQuaternions(tw.qFrom, tw.qTo, e);
     g.position.copy(base.current);
     // Hover: a held card rises out of the fan towards you; a card on the table lifts a little.
@@ -221,7 +260,7 @@ function Card3D({ p, spawn, positions, hitAt, clickable, onHover, onPick }: {
     if (glow.current) glow.current.opacity = 0.8;
     const shaking = hitAt !== undefined && now() - hitAt < 0.5;
     const settling = Math.abs(lift.current - (hovered ? 1 : 0)) > 0.002;
-    if (t < 1 || settling || shaking) invalidate(); // keep drawing while this card moves
+    if (t < 1 || settling || shaking || landing) invalidate(); // keep drawing while this card moves
   });
 
   const color = p.highlight ? HIGHLIGHT_COLORS[p.highlight] : null;
@@ -231,28 +270,33 @@ function Card3D({ p, spawn, positions, hitAt, clickable, onHover, onPick }: {
       onPointerOut={() => { setHovered(false); onHover(false); document.body.style.cursor = ''; }}
       onClick={(e) => { e.stopPropagation(); onPick(); }}>
       {color && (
-        <mesh rotation-x={-Math.PI / 2} position-y={-0.002}>
-          <planeGeometry args={[CARD_W + 0.34, CARD_H + 0.34]} />
+        <mesh rotation-x={-Math.PI / 2} position-y={-SLEEVE_T / 2 - 0.002}>
+          <planeGeometry args={[CARD_W + 0.4, CARD_H + 0.4]} />
           <meshBasicMaterial ref={glow} color={color} alphaMap={alpha} transparent blending={AdditiveBlending} depthWrite={false} toneMapped={false} />
         </mesh>
       )}
-      {/* The card's body: a thin slab that casts the shadow; faces sit on both sides of it. */}
-      <mesh castShadow>
-        <boxGeometry args={[CARD_W - 0.08, 0.018, CARD_H - 0.08]} />
-        <meshStandardMaterial color="#14110e" roughness={0.6} />
+      <mesh ref={ring} rotation-x={-Math.PI / 2} position-y={-0.01} visible={false}>
+        <ringGeometry args={[1.55, 1.95, 48]} />
+        <meshBasicMaterial color="#ffe2b0" transparent opacity={0} depthWrite={false} toneMapped={false} />
       </mesh>
-      {/* Unlit material: Scryfall images are shown as published, with no shading or color shift. */}
-      <mesh rotation-x={-Math.PI / 2} position-y={0.0095}>
-        <planeGeometry args={[CARD_W, CARD_H]} />
-        <meshBasicMaterial map={front} alphaMap={alpha} alphaTest={0.5} toneMapped={false} />
+      {/* The sleeve: glossy plastic in the owner's colour; it casts the card's shadow. */}
+      <mesh geometry={sleeveGeometry} castShadow receiveShadow>
+        <meshStandardMaterial color={sleeve} roughness={0.28} metalness={0.05} envMapIntensity={1.1} />
       </mesh>
-      <mesh rotation-x={Math.PI / 2} position-y={-0.0095}>
+      {/* Faces: mostly the image as published (emissive), with a touch of the lamp's light and its gloss on top. */}
+      <mesh rotation-x={-Math.PI / 2} position-y={SLEEVE_T / 2 + 0.001}>
         <planeGeometry args={[CARD_W, CARD_H]} />
-        <meshBasicMaterial map={backTexture()} alphaMap={alpha} alphaTest={0.5} toneMapped={false} />
+        <meshStandardMaterial map={front} emissiveMap={front} emissive="#ffffff" emissiveIntensity={0.78} color="#6a6a6a"
+          roughness={0.34} metalness={0} envMapIntensity={0.45} alphaMap={alpha} alphaTest={0.5} toneMapped={false} />
+      </mesh>
+      <mesh rotation-x={Math.PI / 2} position-y={-SLEEVE_T / 2 - 0.001}>
+        <planeGeometry args={[CARD_W, CARD_H]} />
+        <meshStandardMaterial map={backTexture()} emissiveMap={backTexture()} emissive="#ffffff" emissiveIntensity={0.6} color="#7a7a7a"
+          roughness={0.3} envMapIntensity={0.5} alphaMap={alpha} alphaTest={0.5} toneMapped={false} />
       </mesh>
       {/* Badges turn back against the card's yaw so they read upright from the viewer's seat. */}
       {p.badges.map((b, i) => (
-        <mesh key={b} rotation={[-Math.PI / 2, 0, -p.yaw]} position={[CARD_W / 2 - 0.6, 0.014, CARD_H / 2 - 0.3 - i * 0.55]}>
+        <mesh key={b} rotation={[-Math.PI / 2, 0, -p.yaw]} position={[CARD_W / 2 - 0.6, SLEEVE_T / 2 + 0.004, CARD_H / 2 - 0.3 - i * 0.55]}>
           <planeGeometry args={[0.5 * BADGE_ASPECT, 0.5]} />
           <meshBasicMaterial map={badgeTexture(b)} transparent toneMapped={false} />
         </mesh>
