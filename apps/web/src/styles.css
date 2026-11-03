@@ -478,3 +478,5 @@ kbd { font: .72rem var(--sans); opacity: .7; margin-left: 6px; border: 1px solid
   background: radial-gradient(ellipse 75% 70% at 50% 55%, transparent 55%, rgba(0, 0, 0, .55) 100%);
 }
 .table3d > :not(div:first-child) { z-index: 1; }
+.decision .hint { font-size: .88rem; margin: 0 0 6px; }
+.game.mode-2d .hint { display: none; } /* dragging is only on the 3D table */

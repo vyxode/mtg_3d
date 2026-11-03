@@ -1,3 +1,4 @@
+import { playSounds, setSoundOn, soundOn, soundsFor } from './sounds';
 import { createContext, lazy, Suspense, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { CARDS, displayName } from '@mtg3d/cards';
 import type { GameEvent, LegalAction, ManaType, ObjectId, PendingDecision, PlayerId, PlayerView, Response, Step, Target, VisibleObject } from '@mtg3d/engine';
@@ -74,6 +75,7 @@ export function Game({ room, update, onError }: Props) {
     if (lines.length) setLog((old) => [...lines.reverse(), ...old].slice(0, 80));
     const turn = [...update.events].reverse().find((e) => e.kind === 'turnStarted');
     const theirs = lines.find((l) => l.startsWith(nameOf(opp)) && !l.includes('roba una carta'));
+    playSounds(soundsFor(update.events, me));
     if (turn?.kind === 'turnStarted') setAnnounce({ text: turn.active === me ? 'Tu turno' : `Turno de ${nameOf(turn.active)}`, big: true, id: update.version });
     else if (theirs) setAnnounce({ text: theirs, big: false, id: update.version });
   }, [update.version]); // one log entry per server update
@@ -88,6 +90,9 @@ export function Game({ room, update, onError }: Props) {
     const r = await ask<{ ok: boolean; error?: string }>('game:input', { decisionId: mine.id, response });
     onError(r.ok ? null : (r.error ?? 'Error'));
   };
+
+  const [sound, setSound] = useState(soundOn);
+  const toggleSound = () => { setSoundOn(!sound); setSound(!sound); };
 
   const [mode, setMode] = useState<'3d' | '2d'>(() => {
     try { if (localStorage.getItem('mtg3d.table') === '2d') return '2d'; } catch { /* storage blocked */ }
@@ -173,6 +178,7 @@ export function Game({ room, update, onError }: Props) {
         <div className="options-menu">
           <FullControl room={room} />
           <button className="quiet" onClick={switchMode}>{mode === '3d' ? 'Mesa 2D' : 'Mesa 3D'}</button>
+          <button className="quiet" onClick={toggleSound} aria-pressed={sound}>{sound ? 'Silenciar' : 'Activar sonido'}</button>
           {!view.result && <button className="quiet danger" onClick={concede}>Conceder</button>}
         </div>
       </details>
@@ -578,6 +584,7 @@ function Priority({ view, d, nameOf, send, onError }: { view: PlayerView; d: Ext
   return (<>
     <h3>Tienes prioridad</h3>
     {plays.length === 0 && <p>No puedes jugar nada ahora: pasa para seguir.</p>}
+    {plays.length > 0 && <p className="muted hint">Arrastra una carta brillante de tu mano a la mesa, o pulsa su botón.</p>}
     <div className="actions">
       {plays.map((a) => label(a).map((text) => <button key={`${a.kind}-${subject(a)}-${text}`} onClick={() => { choose(a); }}>{text}</button>))}
     </div>

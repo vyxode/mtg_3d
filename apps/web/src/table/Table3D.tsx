@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type RefObject } from 'react';
-import { Canvas, useFrame, useThree } from '@react-three/fiber';
+import { Canvas, useFrame, useThree, type ThreeEvent } from '@react-three/fiber';
 import { Environment, Lightformer, OrbitControls, QuadraticBezierLine } from '@react-three/drei';
-import { AdditiveBlending, ExtrudeGeometry, MathUtils, Quaternion, Shape, Vector3, type Group, type Mesh, type MeshBasicMaterial } from 'three';
+import { AdditiveBlending, ExtrudeGeometry, MathUtils, Plane, Quaternion, Shape, Vector3, type Group, type Mesh, type MeshBasicMaterial } from 'three';
 import type { GameEvent, ObjectId, PlayerId, PlayerView } from '@mtg3d/engine';
 import { displayName } from '@mtg3d/cards';
 import { cardImage } from '../net';
@@ -34,7 +34,7 @@ export function Table3D({ view, events, usable, selected, onCardClick, names }: 
   const placements = layoutTable(view, usable, selected);
   const [hover, setHover] = useState<Placement | null>(null);
   const [pinned, setPinned] = useState<Placement | null>(null);
-  const controls = useRef<{ reset: () => void } | null>(null);
+  const controls = useRef<{ reset: () => void; enabled: boolean } | null>(null);
   const shown = hover ?? (pinned && placements.find((p) => p.key === pinned.key)) ?? null;
   const me = view.viewer;
   const opp: PlayerId = me === 'p1' ? 'p2' : 'p1';
@@ -76,6 +76,7 @@ export function Table3D({ view, events, usable, selected, onCardClick, names }: 
         {placements.map((p) => (
           <Card3D key={p.key} p={p} sleeve={p.owner === me ? SLEEVES.me : SLEEVES.them} spawn={spawnOf} positions={positions.current} hitAt={hits.get(p.key)}
             clickable={usable.has(p.key) || selected.has(p.key)}
+            onDrag={(on) => { if (controls.current) controls.current.enabled = !on; }}
             onHover={(on) => { setHover(on && p.card ? p : null); }}
             onPick={() => {
               if (!p.card) return;
@@ -191,11 +192,18 @@ const sleeveGeometry = (() => {
 })();
 const LAND_FX = 0.45; // seconds of the ring a card leaves when it is put down on the table
 
-function Card3D({ p, sleeve, spawn, positions, hitAt, clickable, onHover, onPick }: {
+/** Cards are carried this high above the table, and played when let go over it (in front of the hand). */
+const CARRY = new Plane(new Vector3(0, 1, 0), -1.4);
+const DROP_Z = 10.2;
+
+function Card3D({ p, sleeve, spawn, positions, hitAt, clickable, onDrag, onHover, onPick }: {
   p: Placement; sleeve: string; spawn: (p: Placement) => { at: Vector3; faceDown: boolean }; positions: Map<string, Vector3>; hitAt: number | undefined;
-  clickable: boolean; onHover: (on: boolean) => void; onPick: () => void;
+  clickable: boolean; onDrag: (on: boolean) => void; onHover: (on: boolean) => void; onPick: () => void;
 }) {
+  const drag = useRef<{ at: Vector3; moved: boolean } | null>(null);
+  const justDragged = useRef(false);
   const ref = useRef<Group>(null);
+  const invalidate = useThree((s) => s.invalidate);
   const glow = useRef<MeshBasicMaterial>(null);
   const ring = useRef<Mesh>(null);
   const [hovered, setHovered] = useState(false);
@@ -232,6 +240,14 @@ function Card3D({ p, sleeve, spawn, positions, hitAt, clickable, onHover, onPick
     const tw = tween.current;
     if (!g || !tw) return;
     const t = tw.dur === 0 ? 1 : MathUtils.clamp((now() - tw.t0) / tw.dur, 0, 1);
+    const d = drag.current;
+    if (d) { // carried in the fingers: follows the pointer, held almost flat
+      g.position.lerp(d.at, reducedMotion ? 1 : 0.35);
+      g.quaternion.slerp(orientation({ ...p, tilt: 0.45, roll: 0 }), 0.25);
+      g.scale.setScalar(1.35);
+      invalidate();
+      return;
+    }
     const e = easeInOut(t);
     base.current.lerpVectors(tw.from, tw.to, e);
     base.current.y += tw.arc * Math.sin(Math.PI * t);
@@ -268,7 +284,34 @@ function Card3D({ p, sleeve, spawn, positions, hitAt, clickable, onHover, onPick
     <group ref={ref}
       onPointerOver={(e) => { e.stopPropagation(); setHovered(true); onHover(true); if (clickable) document.body.style.cursor = 'pointer'; }}
       onPointerOut={() => { setHovered(false); onHover(false); document.body.style.cursor = ''; }}
-      onClick={(e) => { e.stopPropagation(); onPick(); }}>
+      onPointerDown={(e: ThreeEvent<PointerEvent>) => {
+        if (!p.inHand) return; // any card can be picked up; only a playable one is played when let go
+        e.stopPropagation();
+        (e.target as Element).setPointerCapture(e.pointerId);
+        drag.current = { at: ref.current?.position.clone() ?? new Vector3(), moved: false };
+        onDrag(true);
+      }}
+      onPointerMove={(e: ThreeEvent<PointerEvent>) => {
+        const d = drag.current;
+        if (!d || !e.ray.intersectPlane(CARRY, d.at)) return;
+        d.moved ||= d.at.z < p.z - 0.8;
+        invalidate();
+      }}
+      onPointerUp={(e: ThreeEvent<PointerEvent>) => {
+        const d = drag.current;
+        const g = ref.current;
+        if (!d || !g) return;
+        (e.target as Element).releasePointerCapture(e.pointerId);
+        drag.current = null;
+        onDrag(false);
+        justDragged.current = d.moved;
+        // Back towards the hand from where it was let go; if it was played, the server moves it to the table first.
+        base.current.copy(g.position);
+        tween.current = { from: g.position.clone(), to: new Vector3(x, y, z), qFrom: g.quaternion.clone(), qTo: orientation(p), t0: now(), dur: reducedMotion ? 0 : 0.3, arc: 0, lands: false };
+        if (d.moved && d.at.z < DROP_Z && clickable) onPick();
+        invalidate();
+      }}
+      onClick={(e) => { e.stopPropagation(); if (justDragged.current) { justDragged.current = false; return; } onPick(); }}>
       {color && (
         <mesh rotation-x={-Math.PI / 2} position-y={-SLEEVE_T / 2 - 0.002}>
           <planeGeometry args={[CARD_W + 0.4, CARD_H + 0.4]} />
