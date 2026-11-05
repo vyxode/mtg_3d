@@ -5,9 +5,13 @@
  * "Cartas de Magic" workflow).
  */
 import { writeFileSync } from 'node:fs';
+import { createInterface } from 'node:readline';
+import { Readable } from 'node:stream';
+import { createGunzip } from 'node:zlib';
 import { fileURLToPath } from 'node:url';
 import { compileOracle, type OracleCard } from '@mtg3d/cards';
 import type { CardDef } from '@mtg3d/engine';
+import { parseBulkLine } from './sync-cards';
 
 const HEADERS = { 'User-Agent': 'mtg3d/0.1 (+https://github.com/vyxode/mtg_3d)', Accept: 'application/json;q=0.9,*/*;q=0.8' };
 const OUT = fileURLToPath(new URL('../../web/public/oracle.json', import.meta.url));
@@ -38,14 +42,23 @@ export function buildOracleDefs(cards: readonly BulkCard[]): { defs: CardDef[]; 
 
 async function main() {
   const res = await fetch('https://api.scryfall.com/bulk-data', { headers: HEADERS });
-  type Entry = { type: string; uri?: string; download_uri?: string };
+  type Entry = { type: string; uri?: string; download_uri?: string; jsonl_download_uri?: string };
   const list = await res.json() as { data?: Entry[] };
   const entry = list.data?.find((b) => b.type === 'oracle_cards');
-  // The list may leave out the download link: the entry's own page has it.
-  const full = entry && !entry.download_uri && entry.uri ? await (await fetch(entry.uri, { headers: HEADERS })).json() as Entry : entry;
-  const uri = full?.download_uri;
+  // The list may leave out the download links: the entry's own page has them.
+  const full = entry && !entry.download_uri && !entry.jsonl_download_uri && entry.uri ? await (await fetch(entry.uri, { headers: HEADERS })).json() as Entry : entry;
+  const uri = full?.jsonl_download_uri ?? full?.download_uri;
   if (!uri) throw new Error(`Scryfall bulk data (HTTP ${String(res.status)}): no download link; fields: ${Object.keys(full ?? {}).join(', ')}`);
-  const cards = await (await fetch(uri, { headers: HEADERS })).json() as BulkCard[];
+  const file = await fetch(uri, { headers: HEADERS });
+  if (!file.ok || !file.body) throw new Error(`Bulk download failed: HTTP ${String(file.status)}`);
+  // One card per line (JSON Lines, or a JSON array with one card per line); gzip-compressed files are unpacked.
+  const raw = Readable.fromWeb(file.body as never);
+  const input = /\.gz(\?|$)/.test(uri) ? raw.pipe(createGunzip()) : raw;
+  const cards: BulkCard[] = [];
+  for await (const line of createInterface({ input, crlfDelay: Infinity })) {
+    const c = parseBulkLine(line);
+    if (c) cards.push(c as unknown as BulkCard);
+  }
   const { defs, tried } = buildOracleDefs(cards);
   writeFileSync(OUT, JSON.stringify({ generatedAt: new Date().toISOString(), defs }));
   console.log(`${String(defs.filter((d) => !d.token).length)} of ${String(tried)} cards compiled (+${String(defs.filter((d) => d.token).length)} tokens) → ${OUT}`);
