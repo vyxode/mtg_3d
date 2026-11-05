@@ -241,6 +241,7 @@ function Card3D({ p, sleeve, spawn, positions, hitAt, clickable, onDrag, onHover
   const drag = useRef<{ at: Vector3; moved: boolean } | null>(null);
   const justDragged = useRef(false);
   const ref = useRef<Group>(null);
+  const hit = useRef<Group>(null); // where the pointer finds the card: stays put while the card lifts, so hovering cannot flicker
   const invalidate = useThree((s) => s.invalidate);
   const glow = useRef<MeshBasicMaterial>(null);
   const ring = useRef<Mesh>(null);
@@ -300,12 +301,17 @@ function Card3D({ p, sleeve, spawn, positions, hitAt, clickable, onDrag, onHover
     }
     g.quaternion.slerpQuaternions(tw.qFrom, tw.qTo, e);
     g.position.copy(base.current);
+    if (hit.current) {
+      hit.current.position.copy(base.current);
+      hit.current.quaternion.copy(g.quaternion);
+      hit.current.scale.setScalar(p.inHand ? 1.3 : 1);
+    }
     // Hover: a held card rises out of the fan towards you; a card on the table lifts a little.
     const k = reducedMotion ? 1 : 0.2;
     lift.current = MathUtils.lerp(lift.current, hovered && t === 1 ? 1 : 0, k);
     g.scale.setScalar(p.inHand ? 1.3 + lift.current * 0.35 : 1 + lift.current * 0.06); // held cards are nearer to you, so bigger
-    g.position.y += lift.current * (p.inHand ? 1.6 : 0.25);
-    if (p.inHand) g.position.z -= lift.current * 1.4;
+    g.position.y += lift.current * (p.inHand ? 1.5 : 0.25);
+    if (p.inHand) g.position.z += lift.current * 1.1; // towards you, so it comes out in front of its neighbours
     // Damage: a short shake.
     if (hitAt !== undefined && !reducedMotion) {
       const age = now() - hitAt;
@@ -318,8 +324,8 @@ function Card3D({ p, sleeve, spawn, positions, hitAt, clickable, onDrag, onHover
   });
 
   const color = p.highlight ? HIGHLIGHT_COLORS[p.highlight] : null;
-  return (
-    <group ref={ref}
+  return (<>
+    <group ref={hit}
       onPointerOver={(e) => { e.stopPropagation(); setHovered(true); onHover(true); if (clickable) document.body.style.cursor = 'pointer'; }}
       onPointerOut={() => { setHovered(false); onHover(false); document.body.style.cursor = ''; }}
       onPointerDown={(e: ThreeEvent<PointerEvent>) => {
@@ -350,6 +356,12 @@ function Card3D({ p, sleeve, spawn, positions, hitAt, clickable, onDrag, onHover
         invalidate();
       }}
       onClick={(e) => { e.stopPropagation(); if (justDragged.current) { justDragged.current = false; return; } onPick(); }}>
+      <mesh rotation-x={-Math.PI / 2}>
+        <planeGeometry args={[CARD_W, CARD_H]} />
+        <meshBasicMaterial colorWrite={false} depthWrite={false} />
+      </mesh>
+    </group>
+    <group ref={ref}>
       {color && (
         <mesh rotation-x={-Math.PI / 2} position-y={-SLEEVE_T / 2 - 0.002}>
           <planeGeometry args={[CARD_W + 0.4, CARD_H + 0.4]} />
@@ -389,7 +401,7 @@ function Card3D({ p, sleeve, spawn, positions, hitAt, clickable, onDrag, onHover
         </mesh>
       ))}
     </group>
-  );
+  </>);
 }
 
 /** Arrows from each spell or ability on the stack to its targets, and from each blocker to the attacker it blocks. */

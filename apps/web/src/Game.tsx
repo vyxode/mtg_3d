@@ -583,18 +583,28 @@ function Priority({ view, d, nameOf, send, onError }: { view: PlayerView; d: Ext
     if (a.kind === 'activate') return [`${shown(a.source)}: ${CARDS.get(cardOf(a.source))?.activated?.[a.ability]?.text ?? 'activar'}`];
     return [];
   };
+  // Identical cards in hand (four Forests) or identical lands to tap are interchangeable: one button each.
+  const once = new Set<string>();
+  const fresh = (text: string, interchangeable: boolean) => {
+    if (!interchangeable) return true;
+    if (once.has(text)) return false;
+    once.add(text);
+    return true;
+  };
   return (<>
     <h3>Tienes prioridad</h3>
     {plays.length === 0 && <p>No puedes jugar nada ahora: pasa para seguir.</p>}
     {plays.length > 0 && <p className="muted hint">Arrastra una carta brillante de tu mano a la mesa, o pulsa su botón.</p>}
     <div className="actions">
-      {plays.map((a) => label(a).map((text) => <button key={`${a.kind}-${subject(a)}-${text}`} onClick={() => { choose(a); }}>{text}</button>))}
+      {plays.map((a) => label(a).filter((text) => fresh(text, view.objects[subject(a)]?.zone === 'hand')).map((text) => (
+        <button key={`${a.kind}-${subject(a)}-${text}`} onClick={() => { choose(a); }}>{text}</button>
+      )))}
     </div>
     {mana.length > 0 && (
       <details className="mana-taps">
         <summary>Girar tierras a mano</summary>
         <p className="muted">No hace falta: al lanzar algo se paga solo. Sirve para dejar maná en reserva.</p>
-        {mana.map((a) => (CARDS.get(cardOf(a.source))?.manaAbilities?.[0]?.produce ?? []).map((m) => (
+        {mana.map((a) => (CARDS.get(cardOf(a.source))?.manaAbilities?.[0]?.produce ?? []).filter((m) => fresh(`mana ${shown(a.source)} ${m}`, view.objects[a.source]?.types.includes('Land') === true)).map((m) => (
           <button key={`mana-${a.source}-${m}`} onClick={() => { choose(a, m); }}>Girar {shown(a.source)} ({m})</button>
         )))}
       </details>
