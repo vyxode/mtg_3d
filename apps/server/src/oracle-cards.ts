@@ -37,9 +37,10 @@ export function buildOracleDefs(cards: readonly BulkCard[]): { defs: CardDef[]; 
 }
 
 async function main() {
-  const meta = await (await fetch('https://api.scryfall.com/bulk-data/oracle_cards', { headers: HEADERS })).json() as { download_uri?: string; details?: string };
-  if (!meta.download_uri) throw new Error(`Scryfall bulk data: ${meta.details ?? 'no download link'}`);
-  const cards = await (await fetch(meta.download_uri, { headers: HEADERS })).json() as BulkCard[];
+  const list = await (await fetch('https://api.scryfall.com/bulk-data', { headers: HEADERS })).json() as { data?: { type: string; download_uri: string }[] };
+  const uri = list.data?.find((b) => b.type === 'oracle_cards')?.download_uri;
+  if (!uri) throw new Error('Scryfall bulk data: no "oracle_cards" file listed');
+  const cards = await (await fetch(uri, { headers: HEADERS })).json() as BulkCard[];
   const { defs, tried } = buildOracleDefs(cards);
   writeFileSync(OUT, JSON.stringify({ generatedAt: new Date().toISOString(), defs }));
   console.log(`${String(defs.filter((d) => !d.token).length)} of ${String(tried)} cards compiled (+${String(defs.filter((d) => d.token).length)} tokens) → ${OUT}`);
