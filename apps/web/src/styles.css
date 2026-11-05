@@ -488,3 +488,32 @@ kbd { font: .72rem var(--sans); opacity: .7; margin-left: 6px; border: 1px solid
 .playerbar .thinking i:nth-child(3) { animation-delay: .4s; }
 @keyframes think { 30% { opacity: 1; } 60% { opacity: .2; } }
 @media (prefers-reduced-motion: reduce) { .playerbar .thinking i { animation: none; opacity: 1; } }
+
+/* Taking damage: the edges of the screen flush red for a moment. */
+.hurt {
+  position: fixed; inset: 0; pointer-events: none; z-index: 50;
+  box-shadow: inset 0 0 160px 30px rgba(200, 40, 28, .6); animation: hurt .8s ease-out forwards;
+}
+@keyframes hurt { from { opacity: 1; } to { opacity: 0; } }
+
+/* Looking at a card: it comes up a little, with a glint across it like a sleeve catching the lamp. */
+.hud-preview { animation: preview-in .18s ease-out; }
+.hud-preview::before {
+  content: ''; position: absolute; left: 8px; right: 8px; top: 8px; aspect-ratio: 63 / 88; border-radius: 9px; pointer-events: none; z-index: 1;
+  background: linear-gradient(115deg, transparent 38%, rgba(255, 246, 225, .32) 50%, transparent 62%) 130% 0 / 260% 100% no-repeat;
+  animation: glint .9s .05s ease-out forwards;
+}
+@keyframes preview-in { from { opacity: 0; transform: translateY(6px) scale(.97); } }
+@keyframes glint { to { background-position: -30% 0; } }
+
+/* The end of the game: a large card in the middle of the table. */
+@media (min-width: 1000px) {
+  .game.mode-3d > .banner.win, .game.mode-3d > .banner.loss {
+    top: 42%; left: calc((100% - 392px) / 2); transform: translate(-50%, -50%); max-width: 560px;
+    padding: 28px 44px; font-size: 2.1rem; display: flex; flex-direction: column; align-items: center; gap: 16px;
+    box-shadow: 0 24px 60px rgba(0, 0, 0, .55); animation: result-in .6s cubic-bezier(.2, 1.3, .4, 1);
+  }
+  .game.mode-3d > .banner.win { box-shadow: 0 24px 60px rgba(0, 0, 0, .55), 0 0 80px rgba(212, 162, 76, .45); }
+  .game.mode-3d > .banner.win button, .game.mode-3d > .banner.loss button { margin: 0; font-size: 1.05rem; padding: 10px 22px; }
+}
+@keyframes result-in { from { opacity: 0; transform: translate(-50%, -40%) scale(.9); } }

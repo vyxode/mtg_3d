@@ -7,7 +7,7 @@ import { displayName } from '@mtg3d/cards';
 import { cardImage } from '../net';
 import { CardImage } from '../CardImage';
 import { CARD_H, CARD_W, STACK_H, layoutTable, libraryPos, piles, type Placement } from './layout';
-import { BADGE_ASPECT, MAT_D, MAT_W, backTexture, badgeTexture, cardTexture, matTexture, onTextureLoaded, roundedCorners, woodTexture } from './textures';
+import { BADGE_ASPECT, MAT_D, MAT_W, backTexture, badgeTexture, cardTexture, matTexture, onTextureLoaded, roundedCorners, runeTexture, woodTexture } from './textures';
 
 /** Each player's cards are in coloured sleeves, as at a real table. */
 const SLEEVES = { me: '#7a2a2c', them: '#284a72' } as const;
@@ -85,13 +85,14 @@ export function Table3D({ view, events, usable, selected, onCardClick, names }: 
               if (usable.has(p.key) || selected.has(p.key)) onCardClick(p.key); else setPinned(pinned?.key === p.key ? null : p);
             }} />
         ))}
+        {view.stack.length > 0 && <SpellCircle />}
         <Arrows view={view} positions={positions.current} />
       </Canvas>
       <div className="hud-cameras">
         <button onClick={() => { controls.current?.reset(); }} title="Volver a tu asiento">Recentrar</button>
       </div>
       {shown?.card && (
-        <aside className="hud-preview" aria-live="polite">
+        <aside className="hud-preview" aria-live="polite" key={shown.card}>
           <CardImage name={displayName(shown.card)} src={cardImage(shown.card)} key={shown.card} />
           <p><b>{displayName(shown.card)}</b>{shown.badges.length > 0 && <> · {shown.badges.join(' · ')}</>}</p>
         </aside>
@@ -161,6 +162,31 @@ function Mat({ side, name, tint }: { side: 1 | -1; name: string; tint: string })
         <planeGeometry args={[MAT_W, MAT_D]} />
         <meshStandardMaterial map={matTexture(name, tint)} roughness={0.97} envMapIntensity={0.15} />
       </mesh>
+    </group>
+  );
+}
+
+/** While spells wait on the stack, a slow glowing circle turns on the felt beneath them, and lights the table. */
+function SpellCircle() {
+  const disc = useRef<Mesh>(null);
+  const born = useRef(now());
+  useFrame(({ invalidate }) => {
+    const m = disc.current;
+    if (!m) return;
+    const age = now() - born.current;
+    m.rotation.z = reducedMotion ? 0 : age * 0.35;
+    const k = Math.min(1, age / 0.4); // grows in
+    m.scale.setScalar(0.6 + 0.4 * k);
+    (m.material as MeshBasicMaterial).opacity = k * (0.7 + 0.15 * Math.sin(age * 3));
+    if (!reducedMotion) invalidate(); // turning: draws continuously, but only while the stack is not empty
+  });
+  return (
+    <group position={[0, 0.03, 0.4]}>
+      <mesh ref={disc} rotation-x={-Math.PI / 2}>
+        <planeGeometry args={[7, 7]} />
+        <meshBasicMaterial map={runeTexture()} transparent opacity={0} blending={AdditiveBlending} depthWrite={false} toneMapped={false} />
+      </mesh>
+      <pointLight position={[0, 0.7, 0]} intensity={7} distance={7} decay={1.4} color="#ffb85c" /> {/* low, so it lights the felt and not the face of the card */}
     </group>
   );
 }

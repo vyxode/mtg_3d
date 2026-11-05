@@ -238,6 +238,7 @@ function PlayerBar({ view, p, name, active, away, thinking }: { view: PlayerView
       <span className="life" aria-label={`${String(pl.life)} vidas`}>
         {pl.life}
         {delta && <span key={delta.id} className={`delta ${delta.n < 0 ? 'down' : 'up'}`} aria-hidden="true">{delta.n > 0 ? '+' : '−'}{Math.abs(delta.n)}</span>}
+        {delta && delta.n < 0 && p === view.viewer && <span key={`hurt-${String(delta.id)}`} className="hurt" aria-hidden="true" />}
       </span>
       <span className="who">
         <b>{name}</b>{away && <span className="away"> desconectado</span>}

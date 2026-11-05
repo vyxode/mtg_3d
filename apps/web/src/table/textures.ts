@@ -294,3 +294,30 @@ export function matTexture(name: string, tint: string): Texture {
   mats.set(name + tint, tex);
   return tex;
 }
+
+let rune: Texture | null = null;
+/** A glowing circle drawn under spells on the stack: rings, ticks and a star, all our own geometry. */
+export function runeTexture(): Texture {
+  if (rune) return rune;
+  const S = 512, c0 = S / 2;
+  const [c, ctx] = canvas(S, S);
+  ctx.strokeStyle = '#ffd890';
+  ctx.shadowColor = '#ffb347';
+  ctx.shadowBlur = 14;
+  const circle = (r: number, w: number) => { ctx.lineWidth = w; ctx.beginPath(); ctx.arc(c0, c0, r, 0, Math.PI * 2); ctx.stroke(); };
+  circle(240, 5); circle(222, 2); circle(150, 3); circle(60, 2);
+  for (let i = 0; i < 48; i++) { // ticks between the outer rings
+    const a = (i / 48) * Math.PI * 2, r0 = i % 4 === 0 ? 196 : 210;
+    ctx.lineWidth = i % 4 === 0 ? 4 : 2;
+    ctx.beginPath(); ctx.moveTo(c0 + Math.cos(a) * r0, c0 + Math.sin(a) * r0); ctx.lineTo(c0 + Math.cos(a) * 222, c0 + Math.sin(a) * 222); ctx.stroke();
+  }
+  for (const turn of [0, Math.PI]) { // a six-pointed star: two triangles
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    for (let k = 0; k <= 3; k++) { const a = turn - Math.PI / 2 + (k * 2 * Math.PI) / 3; ctx.lineTo(c0 + Math.cos(a) * 150, c0 + Math.sin(a) * 150); }
+    ctx.stroke();
+  }
+  rune = new CanvasTexture(c);
+  rune.colorSpace = SRGBColorSpace;
+  return rune;
+}
