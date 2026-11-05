@@ -38,9 +38,13 @@ export function buildOracleDefs(cards: readonly BulkCard[]): { defs: CardDef[]; 
 
 async function main() {
   const res = await fetch('https://api.scryfall.com/bulk-data', { headers: HEADERS });
-  const list = await res.json() as { data?: { type: string; download_uri: string }[] };
-  const uri = list.data?.find((b) => b.type === 'oracle_cards')?.download_uri;
-  if (!uri) throw new Error(`Scryfall bulk data (HTTP ${String(res.status)}): ${JSON.stringify(list).slice(0, 300)}`);
+  type Entry = { type: string; uri?: string; download_uri?: string };
+  const list = await res.json() as { data?: Entry[] };
+  const entry = list.data?.find((b) => b.type === 'oracle_cards');
+  // The list may leave out the download link: the entry's own page has it.
+  const full = entry && !entry.download_uri && entry.uri ? await (await fetch(entry.uri, { headers: HEADERS })).json() as Entry : entry;
+  const uri = full?.download_uri;
+  if (!uri) throw new Error(`Scryfall bulk data (HTTP ${String(res.status)}): no download link; fields: ${Object.keys(full ?? {}).join(', ')}`);
   const cards = await (await fetch(uri, { headers: HEADERS })).json() as BulkCard[];
   const { defs, tried } = buildOracleDefs(cards);
   writeFileSync(OUT, JSON.stringify({ generatedAt: new Date().toISOString(), defs }));
