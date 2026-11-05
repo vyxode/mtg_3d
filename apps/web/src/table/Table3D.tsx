@@ -31,8 +31,8 @@ interface Props {
 }
 
 export function Table3D({ view, events, usable, selected, onCardClick, names }: Props) {
-  const placements = layoutTable(view, usable, selected);
   const [hover, setHover] = useState<Placement | null>(null);
+  const placements = layoutTable(view, usable, selected, hover?.inHand ? hover.key : null);
   const [pinned, setPinned] = useState<Placement | null>(null);
   const controls = useRef<{ reset: () => void; enabled: boolean } | null>(null);
   const shown = hover ?? (pinned && placements.find((p) => p.key === pinned.key)) ?? null;
@@ -42,6 +42,7 @@ export function Table3D({ view, events, usable, selected, onCardClick, names }: 
   // Last drawn position of every card, so a card that changes zone (and gets a new id, 400.7) flies from where it was.
   const positions = useRef(new Map<string, Vector3>());
   const movedFrom = new Map(events.flatMap((e) => (e.kind === 'zoneChange' ? [[e.to, e.from] as const] : [])));
+  const fromHand = new Set(events.flatMap((e) => (e.kind === 'zoneChange' && e.fromZone === 'hand' ? [e.to] : [])));
   useLayoutEffect(() => { // pruned after the cards that replaced moved ones have read their old positions
     const live = new Set(placements.map((p) => p.key));
     for (const k of positions.current.keys()) if (!live.has(k)) positions.current.delete(k);
@@ -51,6 +52,9 @@ export function Table3D({ view, events, usable, selected, onCardClick, names }: 
     const from = movedFrom.get(p.key);
     const prev = from === undefined ? undefined : positions.current.get(from);
     if (prev) return { at: prev.clone(), faceDown: false };
+    // A card the opponent plays leaves their hand (the slot that just went away) face down, and turns over on its way.
+    const slot = fromHand.has(p.key) ? positions.current.get(`hand-${p.owner}-${String(view.players[p.owner].handSize)}`) : undefined;
+    if (slot) return { at: slot.clone(), faceDown: true };
     const lib = libraryPos(p.owner, me);
     return { at: new Vector3(lib.x, view.players[p.owner].librarySize * STACK_H + 0.05, lib.z), faceDown: true };
   };
@@ -58,6 +62,11 @@ export function Table3D({ view, events, usable, selected, onCardClick, names }: 
   const hits = useMemo(() => {
     const t = now();
     return new Map(events.flatMap((e) => (e.kind === 'damage' && e.target.kind === 'object' ? [[e.target.id, t] as const] : [])));
+  }, [events]);
+  // A creature dealing combat damage lunges at the other side of the table.
+  const lunges = useMemo(() => {
+    const t = now();
+    return new Map(events.flatMap((e) => (e.kind === 'damage' && e.combat ? [[e.source, t] as const] : [])));
   }, [events]);
 
   return (
@@ -75,7 +84,7 @@ export function Table3D({ view, events, usable, selected, onCardClick, names }: 
         <Mat side={-1} name={names[opp]} tint="#2a3f55" />
         {piles(view).map((pl) => <Pile key={pl.key} x={pl.x} z={pl.z} h={pl.h} sleeve={pl.owner === me ? SLEEVES.me : SLEEVES.them} />)}
         {placements.map((p) => (
-          <Card3D key={p.key} p={p} sleeve={p.owner === me ? SLEEVES.me : SLEEVES.them} spawn={spawnOf} positions={positions.current} hitAt={hits.get(p.key)}
+          <Card3D key={p.key} p={p} sleeve={p.owner === me ? SLEEVES.me : SLEEVES.them} spawn={spawnOf} positions={positions.current} hitAt={hits.get(p.key)} lungeAt={lunges.get(p.key)}
             clickable={usable.has(p.key) || selected.has(p.key)}
             onDrag={(on) => { if (controls.current) controls.current.enabled = !on; }}
             onHover={(on) => { setHover(on && p.card ? p : null); }}
@@ -228,14 +237,15 @@ const sleeveGeometry = (() => {
   s.lineTo(-w / 2, -h / 2 + r); s.quadraticCurveTo(-w / 2, -h / 2, -w / 2 + r, -h / 2);
   return new ExtrudeGeometry(s, { depth: SLEEVE_T, bevelEnabled: false, curveSegments: 4 }).translate(0, 0, -SLEEVE_T / 2).rotateX(-Math.PI / 2);
 })();
+const LUNGE = 0.4; // seconds of a creature's lunge when it deals combat damage
 const LAND_FX = 0.45; // seconds of the ring a card leaves when it is put down on the table
 
 /** Cards are carried this high above the table, and played when let go over it (in front of the hand). */
 const CARRY = new Plane(new Vector3(0, 1, 0), -1.4);
 const DROP_Z = 10.2;
 
-function Card3D({ p, sleeve, spawn, positions, hitAt, clickable, onDrag, onHover, onPick }: {
-  p: Placement; sleeve: string; spawn: (p: Placement) => { at: Vector3; faceDown: boolean }; positions: Map<string, Vector3>; hitAt: number | undefined;
+function Card3D({ p, sleeve, spawn, positions, hitAt, lungeAt, clickable, onDrag, onHover, onPick }: {
+  p: Placement; sleeve: string; spawn: (p: Placement) => { at: Vector3; faceDown: boolean }; positions: Map<string, Vector3>; hitAt: number | undefined; lungeAt: number | undefined;
   clickable: boolean; onDrag: (on: boolean) => void; onHover: (on: boolean) => void; onPick: () => void;
 }) {
   const drag = useRef<{ at: Vector3; moved: boolean } | null>(null);
@@ -317,10 +327,16 @@ function Card3D({ p, sleeve, spawn, positions, hitAt, clickable, onDrag, onHover
       const age = now() - hitAt;
       if (age < 0.5) g.position.x += Math.sin(age * 60) * 0.12 * (1 - age / 0.5);
     }
+    const lunging = lungeAt !== undefined && !reducedMotion && now() - lungeAt < LUNGE;
+    if (lunging) {
+      const k = Math.sin((Math.PI * (now() - lungeAt)) / LUNGE);
+      g.position.z -= Math.sign(base.current.z || 1) * k * 1.4;
+      g.position.y += k * 0.5;
+    }
     if (glow.current) glow.current.opacity = 0.8;
     const shaking = hitAt !== undefined && now() - hitAt < 0.5;
     const settling = Math.abs(lift.current - (hovered ? 1 : 0)) > 0.002;
-    if (t < 1 || settling || shaking || landing) invalidate(); // keep drawing while this card moves
+    if (t < 1 || settling || shaking || landing || lunging) invalidate(); // keep drawing while this card moves
   });
 
   const color = p.highlight ? HIGHLIGHT_COLORS[p.highlight] : null;

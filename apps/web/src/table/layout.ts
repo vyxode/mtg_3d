@@ -101,7 +101,7 @@ function badgesOf(o: VisibleObject): string[] {
 const isLand = (o: VisibleObject) => o.types.includes('Land') && !o.types.includes('Creature');
 
 /** Everything visible on the table from the viewer's seat; `playable` are the cards the viewer can use now. */
-export function layoutTable(view: PlayerView, playable: ReadonlySet<ObjectId> = new Set(), selected: ReadonlySet<ObjectId> = new Set()): Placement[] {
+export function layoutTable(view: PlayerView, playable: ReadonlySet<ObjectId> = new Set(), selected: ReadonlySet<ObjectId> = new Set(), pointed: ObjectId | null = null): Placement[] {
   const me = view.viewer;
   const out: Placement[] = [];
   const attackers = new Set(view.combat?.attackers.map((a) => a.id));
@@ -175,10 +175,12 @@ export function layoutTable(view: PlayerView, playable: ReadonlySet<ObjectId> = 
     return Array.from({ length: n }, (_, i) => { const d = i - (n - 1) / 2; return { d, x: d * step }; });
   };
   const hand = view.zones.hand.map((id) => view.objects[id]).filter((o): o is VisibleObject => !!o);
+  const at = hand.findIndex((o) => o.id === pointed);
   fan(hand.length, 15).forEach(({ d, x }, i) => {
     const o = hand[i] as VisibleObject;
+    const room = at < 0 || i === at ? 0 : Math.sign(i - at) * 0.7; // the cards beside the one you point at make room for it
     out.push({
-      key: o.id, card: o.card, owner: me, x, y: 1.7 - d * d * 0.018 + i * 0.012, z: 12.3 + d * d * 0.025, yaw: 0, tilt: 1.2, roll: -d * 0.06,
+      key: o.id, card: o.card, owner: me, x: x + room, y: 1.7 - d * d * 0.018 + i * 0.012, z: 12.3 + d * d * 0.025, yaw: 0, tilt: 1.2, roll: -d * 0.06,
       inHand: true, badges: [], highlight: playable.has(o.id) ? 'playable' : null,
     });
   });
