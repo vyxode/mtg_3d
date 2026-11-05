@@ -40,13 +40,11 @@ export function Table3D({ view, events, usable, selected, onCardClick, names }: 
   const opp: PlayerId = me === 'p1' ? 'p2' : 'p1';
 
   // Last drawn position of every card, so a card that changes zone (and gets a new id, 400.7) flies from where it was.
+  // Never pruned here: the 3D scene commits after this component, so a pruned entry would be gone before the new card reads it.
+  // shortcut: grows by one small vector per card that ever appeared (a few thousand in a long game); prune by age if that matters.
   const positions = useRef(new Map<string, Vector3>());
   const movedFrom = new Map(events.flatMap((e) => (e.kind === 'zoneChange' ? [[e.to, e.from] as const] : [])));
   const fromHand = new Set(events.flatMap((e) => (e.kind === 'zoneChange' && e.fromZone === 'hand' ? [e.to] : [])));
-  useLayoutEffect(() => { // pruned after the cards that replaced moved ones have read their old positions
-    const live = new Set(placements.map((p) => p.key));
-    for (const k of positions.current.keys()) if (!live.has(k)) positions.current.delete(k);
-  });
   /** Where a new card appears: where it was before its zone change, or (a drawn card) on top of its library, face down. */
   const spawnOf = (p: Placement): { at: Vector3; faceDown: boolean } => {
     const from = movedFrom.get(p.key);
