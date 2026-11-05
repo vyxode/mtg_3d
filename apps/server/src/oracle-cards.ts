@@ -9,7 +9,7 @@ import { fileURLToPath } from 'node:url';
 import { compileOracle, type OracleCard } from '@mtg3d/cards';
 import type { CardDef } from '@mtg3d/engine';
 
-const HEADERS = { 'User-Agent': 'mtg3d/0.1 (+https://github.com/vyxode/mtg_3d)', Accept: 'application/json' };
+const HEADERS = { 'User-Agent': 'mtg3d/0.1 (+https://github.com/vyxode/mtg_3d)', Accept: 'application/json;q=0.9,*/*;q=0.8' };
 const OUT = fileURLToPath(new URL('../../web/public/oracle.json', import.meta.url));
 
 export interface BulkCard extends OracleCard {
@@ -37,9 +37,10 @@ export function buildOracleDefs(cards: readonly BulkCard[]): { defs: CardDef[]; 
 }
 
 async function main() {
-  const list = await (await fetch('https://api.scryfall.com/bulk-data', { headers: HEADERS })).json() as { data?: { type: string; download_uri: string }[] };
+  const res = await fetch('https://api.scryfall.com/bulk-data', { headers: HEADERS });
+  const list = await res.json() as { data?: { type: string; download_uri: string }[] };
   const uri = list.data?.find((b) => b.type === 'oracle_cards')?.download_uri;
-  if (!uri) throw new Error('Scryfall bulk data: no "oracle_cards" file listed');
+  if (!uri) throw new Error(`Scryfall bulk data (HTTP ${String(res.status)}): ${JSON.stringify(list).slice(0, 300)}`);
   const cards = await (await fetch(uri, { headers: HEADERS })).json() as BulkCard[];
   const { defs, tried } = buildOracleDefs(cards);
   writeFileSync(OUT, JSON.stringify({ generatedAt: new Date().toISOString(), defs }));
