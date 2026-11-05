@@ -32,10 +32,10 @@ export async function startGame(browser: Browser, deck?: string, table?: '2d'): 
   await beto.getByRole('button', { name: 'Unirse' }).click();
   await expect(ana.locator('.seat-name', { hasText: 'Beto' })).toBeVisible();
 
-  if (deck) await ana.getByLabel('Mazo').selectOption(deck);
-  await ana.getByRole('button', { name: 'Elegir mazo' }).click();
-  await beto.getByLabel('Mazo').selectOption(deck ?? { index: 1 });
-  await beto.getByRole('button', { name: 'Elegir mazo' }).click();
+  if (deck) await ana.locator('.deck-box', { hasText: deck }).click();
+  await ana.getByRole('button', { name: /^Jugar con / }).click();
+  await (deck ? beto.locator('.deck-box', { hasText: deck }) : beto.locator('.deck-box').nth(1)).click();
+  await beto.getByRole('button', { name: /^Jugar con / }).click();
 
   // Whoever was chosen at random decides who starts: Ana starts either way.
   const chooser = (p: Page) => p.getByRole('heading', { name: '¿Quién empieza?' }).isVisible();

@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
-import { CARDS, PRESET_DECKS } from '@mtg3d/cards';
+import { CARDS, PRESET_DECKS, displayName } from '@mtg3d/cards';
 import type { GameUpdate, JoinAck, RoomState } from '@mtg3d/protocol';
-import { P2P, ask, loadSession, saveSession, socket } from './net';
+import { P2P, ask, cardImage, loadSession, saveSession, socket } from './net';
+import { CardImage } from './CardImage';
 import { Game } from './Game';
 import { DeckBuilder } from './DeckBuilder';
 import { expandList, loadDecks } from './decks';
@@ -98,6 +99,13 @@ function Lobby({ onError }: { onError: (e: string | null) => void }) {
         <div className="fan" aria-hidden="true">{[0, 1, 2, 3, 4].map((i) => <span key={i} className="back" style={{ ['--i' as string]: i - 2 }} />)}</div>
         <h1>Partida entre amigos</h1>
         <p className="lede">{invited ? 'Te han invitado a una sala. Escribe tu nombre y entra.' : 'Crea una sala y pásale el código a tu amigo. Sin cuentas y sin instalar nada.'}</p>
+        {!invited && (
+          <ol className="steps">
+            <li><b>Crea una sala</b><span>con tu nombre, sin registrarte</span></li>
+            <li><b>Pásale el enlace</b><span>tu amigo entra desde su navegador</span></li>
+            <li><b>Elegid mazo y a jugar</b><span>en una mesa 3D, con las reglas de Magic</span></li>
+          </ol>
+        )}
         {P2P && <p className="aside">Quien crea la sala hace de anfitrión en su navegador: deja la pestaña abierta hasta terminar.</p>}
       </section>
       <form className="lobby-form" onSubmit={(e) => { e.preventDefault(); void join(invited || code.length === 6 ? 'room:join' : 'room:create'); }}>
@@ -121,6 +129,20 @@ function deckColors(list: string[]): Record<string, number> {
     for (const c of ['W', 'U', 'B', 'R', 'G'] as const) if (cost?.[c]) out[c] = (out[c] ?? 0) + cost[c];
   }
   return out;
+}
+
+/** The card on the front of a deck box: its most expensive spell (or its first card). */
+function coverOf(list: string[]): string | undefined {
+  let best: string | undefined;
+  let mv = -1;
+  for (const name of new Set(list)) {
+    const def = CARDS.get(name);
+    const cost = def?.manaCost;
+    if (!cost || def.types.includes('Land')) continue;
+    const v = cost.generic + (['W', 'U', 'B', 'R', 'G', 'C'] as const).reduce((a, k) => a + (cost[k] ?? 0), 0);
+    if (v > mv) { mv = v; best = name; }
+  }
+  return best ?? list.find((n) => !/^(Plains|Island|Swamp|Mountain|Forest)$/.test(n)) ?? list[0];
 }
 
 function WaitingRoom({ room, onError }: { room: RoomState; onError: (e: string | null) => void }) {
@@ -159,13 +181,23 @@ function WaitingRoom({ room, onError }: { room: RoomState; onError: (e: string |
         {seat('Rival', opp ?? null)}
       </section>
       <section className="deck-pick">
-        <label>Mazo
-          <select value={deck} onChange={(e) => { setDeck(e.target.value); }} disabled={me?.ready}>
-            {names.map((n) => <option key={n}>{n}</option>)}
-          </select>
-        </label>
-        <p className="deck-facts"><span>{list.length} cartas</span> <ManaPips pool={deckColors(list)} /></p>
-        <button className="primary" disabled={me?.ready} onClick={() => void choose()}>{me?.ready ? (opp?.ready ? 'Empezando…' : 'Listo: esperando al rival') : 'Elegir mazo'}</button>
+        <h2>Elige tu mazo</h2>
+        {/* The decks stand on a shelf like boxes; each box shows its colours and a card from inside. */}
+        <div className="deck-shelf" role="radiogroup" aria-label="Mazo">
+          {names.map((n) => {
+            const cards = options[n] ?? [];
+            const cover = coverOf(cards);
+            return (
+              <label key={n} className={`deck-box${n === deck ? ' chosen' : ''}`}>
+                <input type="radio" name="deck" value={n} checked={n === deck} disabled={me?.ready} onChange={() => { setDeck(n); }} />
+                <span className="deck-art">{cover && <CardImage name={displayName(cover)} src={cardImage(cover)} loading="lazy" />}</span>
+                <span className="deck-name">{n}</span>
+                <span className="deck-facts"><span>{cards.length} cartas</span> <ManaPips pool={deckColors(cards)} /></span>
+              </label>
+            );
+          })}
+        </div>
+        <button className="primary" disabled={me?.ready} onClick={() => void choose()}>{me?.ready ? (opp?.ready ? 'Empezando…' : 'Listo: esperando al rival') : `Jugar con ${deck}`}</button>
       </section>
     </main>
   );

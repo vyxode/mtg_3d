@@ -19,7 +19,7 @@ test('builds a deck from a pasted list, edits it and offers it in the room', asy
   await page.getByRole('button', { name: 'Jugar' }).click();
   await page.getByLabel('Tu nombre').fill('Ana');
   await page.getByRole('button', { name: 'Crear sala' }).click();
-  await page.getByLabel('Mazo').selectOption('Mío: Rayos');
-  await page.getByRole('button', { name: 'Elegir mazo' }).click();
+  await page.locator('.deck-box', { hasText: 'Mío: Rayos' }).click();
+  await page.getByRole('button', { name: 'Jugar con Mío: Rayos' }).click();
   await expect(page.getByRole('button', { name: 'Listo: esperando al rival' })).toBeVisible();
 });
