@@ -4,7 +4,8 @@
  * compiled rules are stored, not the cards' text. Run where Scryfall is reachable (`pnpm cards:oracle`, or the
  * "Cartas de Magic" workflow).
  */
-import { writeFileSync } from 'node:fs';
+import { mkdirSync, writeFileSync } from 'node:fs';
+import { dirname } from 'node:path';
 import { createInterface } from 'node:readline';
 import { Readable } from 'node:stream';
 import { createGunzip } from 'node:zlib';
@@ -60,6 +61,7 @@ async function main() {
     if (c) cards.push(c as unknown as BulkCard);
   }
   const { defs, tried } = buildOracleDefs(cards);
+  mkdirSync(dirname(OUT), { recursive: true });
   writeFileSync(OUT, JSON.stringify({ generatedAt: new Date().toISOString(), defs }));
   console.log(`${String(defs.filter((d) => !d.token).length)} of ${String(tried)} cards compiled (+${String(defs.filter((d) => d.token).length)} tokens) → ${OUT}`);
 }
