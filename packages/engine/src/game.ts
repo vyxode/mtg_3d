@@ -431,6 +431,11 @@ function canCastSorcerySpeed(ctx: Ctx, p: PlayerId): boolean {
   return t.active === p && isMain(t.step) && ctx.s.stack.length === 0;
 }
 
+const PERMANENT_TARGETS: Record<'permanent' | 'nonlandPermanent' | 'artifact' | 'enchantment' | 'artifactOrEnchantment' | 'land' | 'nonbasicLand', CardType[]> = {
+  permanent: [], nonlandPermanent: [], artifact: ['Artifact'], enchantment: ['Enchantment'], artifactOrEnchantment: ['Artifact', 'Enchantment'],
+  land: ['Land'], nonbasicLand: ['Land'],
+};
+
 function targetOptions(ctx: Ctx, spec: TargetSpec, controller: PlayerId): Target[] {
   const s = ctx.s;
   const creatures = s.zones.battlefield.filter((id) => isCreatureOnBattlefield(ctx, id)).map((id): Target => ({ kind: 'object', id }));
@@ -452,6 +457,18 @@ function targetOptions(ctx: Ctx, spec: TargetSpec, controller: PlayerId): Target
     case 'landYouControl':
       return s.zones.battlefield.filter((id) => (s.objects[id] as GameObject).controller === controller && isType(characteristics(s, ctx.reg, id), 'Land')).map((id): Target => ({ kind: 'object', id }));
     case 'spell': return s.stack.filter((e) => e.kind === 'spell').map((e): Target => ({ kind: 'object', id: e.id }));
+    case 'opponent': return players.filter((t) => t.kind === 'player' && t.player !== controller);
+    case 'creatureOrPlaneswalker': return [...creatures, ...walkers];
+    case 'planeswalker': return walkers;
+    default: { // permanents by type
+      const types = PERMANENT_TARGETS[spec];
+      return s.zones.battlefield.filter((id) => {
+        const c = characteristics(s, ctx.reg, id);
+        if (spec === 'nonlandPermanent') return !isType(c, 'Land');
+        if (spec === 'nonbasicLand' && ctx.reg.get((s.objects[id] as GameObject).card)?.supertypes?.includes('Basic')) return false;
+        return types.length === 0 || types.some((t) => isType(c, t));
+      }).map((id): Target => ({ kind: 'object', id }));
+    }
   }
 }
 
@@ -484,7 +501,7 @@ function legalActions(ctx: Ctx, p: PlayerId): LegalAction[] {
       if (canPlayLand) out.push({ kind: 'playLand', card: id });
       continue;
     }
-    if (!isType(def, 'Instant') && !sorcerySpeed) continue;
+    if (!isType(def, 'Instant') && !def.keywords?.includes('Flash') && !sorcerySpeed) continue;
     const opts = spellTargets(def).map((spec) => targetOptions(ctx, spec, p));
     if (!opts.every((o) => o.length > 0)) continue;
     if (def.manaCost !== null) out.push({ kind: 'cast', card: id, targetOptions: opts, cost: costToCast(ctx, p, def) }); // 202.1b
@@ -668,7 +685,7 @@ function cast(ctx: Ctx, p: PlayerId, r: Extract<Response, { kind: 'cast' }>): vo
   if (def.status === 'unsupported') fail(`${def.name} is not implemented`);
   if (r.warp && (obj.zone !== 'hand' || !def.warp)) fail('Only a card with warp in your hand can be cast for its warp cost');
   if (isType(def, 'Land')) fail('Lands are played, not cast');
-  if (!isType(def, 'Instant') && !canCastSorcerySpeed(ctx, p)) fail(`${def.name} can only be cast at sorcery speed`);
+  if (!isType(def, 'Instant') && !def.keywords?.includes('Flash') && !canCastSorcerySpeed(ctx, p)) fail(`${def.name} can only be cast at sorcery speed`);
 
   const specs = spellTargets(def);
   if (r.targets.length !== specs.length) fail(`Expected ${String(specs.length)} target(s)`);

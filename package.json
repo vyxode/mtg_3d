@@ -18,7 +18,8 @@
     "db:up": "docker compose -f infra/docker-compose.yml --env-file .env up -d",
     "db:down": "docker compose -f infra/docker-compose.yml --env-file .env down",
     "cards:sync": "pnpm --filter @mtg3d/server cards:sync",
-    "cards:es": "pnpm --filter @mtg3d/server cards:es"
+    "cards:es": "pnpm --filter @mtg3d/server cards:es",
+    "cards:oracle": "pnpm --filter @mtg3d/server cards:oracle"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

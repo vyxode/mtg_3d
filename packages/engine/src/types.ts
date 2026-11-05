@@ -35,7 +35,10 @@ export type TargetSpec = 'anyTarget' | 'creature' | 'spell' | 'player'
   | 'creatureOpponentControls'
   | 'nonbasicLandOpponentControls'
   /** "target card from a graveyard" (any graveyard). */
-  | 'cardInGraveyard';
+  | 'cardInGraveyard'
+  // General permanent targets, as most cards word them.
+  | 'permanent' | 'nonlandPermanent' | 'artifact' | 'enchantment' | 'artifactOrEnchantment' | 'planeswalker'
+  | 'creatureOrPlaneswalker' | 'land' | 'nonbasicLand' | 'opponent';
 
 /** Counter kinds other than +1/+1 (kept in `GameObject.counters`) and loyalty. */
 export type CounterKind = 'quest' | 'lore' | 'finality';
@@ -108,7 +111,9 @@ export interface ManaAbility {
 /** Keyword abilities implemented by the engine (rule 702). */
 export type Keyword =
   | 'Flying' | 'Reach' | 'Vigilance' | 'Haste' | 'Defender' | 'Menace'
-  | 'First strike' | 'Double strike' | 'Deathtouch' | 'Trample' | 'Lifelink' | 'Indestructible';
+  | 'First strike' | 'Double strike' | 'Deathtouch' | 'Trample' | 'Lifelink' | 'Indestructible'
+  /** 702.8: may be cast any time you could cast an instant. */
+  | 'Flash';
 
 /** "When [this] enters" / "When [this] dies" (603.6a, 603.6c with look-back). */
 export interface TriggerDef {

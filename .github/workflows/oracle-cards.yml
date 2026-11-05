@@ -1,0 +1,36 @@
+name: Cartas de Magic
+
+# Compiles every card the engine can play from Scryfall's Oracle data and commits apps/web/public/oracle.json.
+# Runs by hand, every week (new sets), and whenever the Oracle compiler changes.
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '17 4 * * 1'
+  push:
+    branches: [main]
+    paths: ['packages/cards/src/oracle.ts', 'apps/server/src/oracle-cards.ts']
+
+permissions:
+  contents: write
+
+jobs:
+  compile:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: NODE_OPTIONS=--max-old-space-size=4096 pnpm cards:oracle
+      - name: Commit if anything changed
+        run: |
+          git add apps/web/public/oracle.json
+          git diff --cached --quiet && exit 0
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "Cartas de Magic: actualizar desde Scryfall"
+          git pull --rebase
+          git push

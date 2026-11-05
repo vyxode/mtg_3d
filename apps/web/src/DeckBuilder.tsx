@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type DragEvent } from 'react';
-import { CARDS, DEFS, displayName, spanish } from '@mtg3d/cards';
+import { CARDS, displayName, spanish } from '@mtg3d/cards';
 import { manaValue, type ManaCost } from '@mtg3d/engine';
 import { cardImage } from './net';
 import { CardImage } from './CardImage';
@@ -22,12 +22,13 @@ const costText = (c: ManaCost | null): string => {
   return parts.join('');
 };
 
-/** Implemented cards as search results, used while the server has no catalog. */
-const LOCAL: Result[] = DEFS.filter((d) => !d.token && !d.frontFace).map((d) => ({
+/** Playable cards (hand-written and compiled from Oracle data) as search results, used while the server has no catalog. */
+let local: Result[] | null = null;
+const LOCAL = (): Result[] => (local ??= [...CARDS.values()].filter((d) => !d.token && !d.frontFace).map((d) => ({
   oracleId: null, name: d.name, cmc: manaValue(d.manaCost), manaCost: costText(d.manaCost), oracleText: '', printingCount: 1,
   typeLine: [d.supertypes?.join(' '), d.types.join(' ')].filter(Boolean).join(' ') + (d.subtypes?.length ? ` — ${d.subtypes.join(' ')}` : ''),
   image: cardImage(d.name), legalities: {}, anyNumber: false,
-}));
+})).sort((a, b) => a.name.localeCompare(b.name)));
 
 interface Filters { name: string; text: string; type: string; colors: string[]; cmc: string; set: string; format: string }
 const EMPTY: Filters = { name: '', text: '', type: '', colors: [], cmc: '', set: '', format: '' };
@@ -52,8 +53,8 @@ export function DeckBuilder() {
   const search = async (page = 0) => {
     if (!online) {
       const f = filters;
-      const hits = LOCAL.filter((c) => (!f.name || `${c.name} ${displayName(c.name)}`.toLowerCase().includes(f.name.toLowerCase())) && (!f.type || c.typeLine.toLowerCase().includes(f.type.toLowerCase())) && (!f.cmc || c.cmc === Number(f.cmc)) && f.colors.every((x) => x === 'c' ? !/[WUBRG]/.test(c.manaCost) : c.manaCost.includes(x)));
-      setResults({ total: hits.length, page: 0, cards: hits });
+      const hits = LOCAL().filter((c) => (!f.name || `${c.name} ${displayName(c.name)}`.toLowerCase().includes(f.name.toLowerCase())) && (!f.type || c.typeLine.toLowerCase().includes(f.type.toLowerCase())) && (!f.cmc || c.cmc === Number(f.cmc)) && f.colors.every((x) => x === 'c' ? !/[WUBRG]/.test(c.manaCost) : c.manaCost.includes(x)));
+      setResults({ total: hits.length, page, cards: hits.slice(page * 60, page * 60 + 60) });
       return;
     }
     const p = new URLSearchParams();
@@ -94,7 +95,7 @@ export function DeckBuilder() {
     const text = prompt('Pega la lista (formato «4 Lightning Bolt»; «Sideboard» separa el banquillo):');
     if (!text) return;
     const parsed = parseDeckText(text);
-    const known = new Map([...LOCAL, ...results.cards].map((c) => [c.name, c]));
+    const known = new Map([...LOCAL(), ...results.cards].map((c) => [c.name, c]));
     const info: Record<string, DeckCard> = {};
     for (const name of [...Object.keys(parsed.main), ...Object.keys(parsed.side)]) {
       info[name] = known.get(name) ?? { name, cmc: 0, typeLine: '', manaCost: '', image: cardImage(name), legalities: {}, anyNumber: false };
@@ -154,8 +155,8 @@ export function DeckBuilder() {
               </div>
             ))}
           </div>
-          {online && results.total > (results.page + 1) * 60 && <button onClick={() => void search(results.page + 1)}>Siguiente página</button>}
-          {online && results.page > 0 && <button onClick={() => void search(results.page - 1)}>Página anterior</button>}
+          {results.total > (results.page + 1) * 60 && <button onClick={() => void search(results.page + 1)}>Siguiente página</button>}
+          {results.page > 0 && <button onClick={() => void search(results.page - 1)}>Página anterior</button>}
         </>)}
       </section>
 

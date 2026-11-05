@@ -553,3 +553,6 @@ kbd { font: .72rem var(--sans); opacity: .7; margin-left: 6px; border: 1px solid
 }
 .steps b { font: 700 1.02rem var(--serif); color: var(--parchment); }
 .steps span { font-size: .92rem; color: var(--parchment-dim); }
+
+/* Shown while the card list loads, before the app starts. */
+.boot { min-height: 100vh; display: grid; place-items: center; margin: 0; font: italic 1.2rem Alegreya, Georgia, serif; color: #cbbfa6; background: #10241f; }

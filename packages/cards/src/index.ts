@@ -1,7 +1,14 @@
-import type { CardRegistry } from '@mtg3d/engine';
+import type { CardDef, CardRegistry } from '@mtg3d/engine';
 import { DEFS } from './defs';
 
-export const CARDS: CardRegistry = new Map(DEFS.map((d) => [d.name, d]));
+const registry = new Map(DEFS.map((d) => [d.name, d]));
+export const CARDS: CardRegistry = registry;
+
+/** Adds cards built from Oracle data (see oracle.ts); the hand-written definitions above always win. */
+export function registerCards(defs: readonly CardDef[]): void {
+  for (const d of defs) if (!registry.has(d.name)) registry.set(d.name, d);
+}
+export { compileOracle, type Compiled, type OracleCard } from './oracle';
 export { DEFS };
 export { PRESET_DECKS, validateCasualDeck } from './decks';
 export { displayName, spanish, type EsCard } from './i18n';
