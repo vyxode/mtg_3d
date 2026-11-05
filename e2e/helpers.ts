@@ -52,9 +52,3 @@ export async function startGame(browser: Browser, deck?: string, table?: '2d'): 
 
   return { ana, beto, errors };
 }
-
-/** Switches a player to the 2D table (the option lives in the "Opciones" menu). */
-export async function to2D(page: Page): Promise<void> {
-  await page.locator('summary', { hasText: 'Opciones' }).click();
-  await page.getByRole('button', { name: 'Mesa 2D' }).click();
-}

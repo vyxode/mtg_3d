@@ -1,12 +1,9 @@
 import { expect, test } from '@playwright/test';
-import { startGame, to2D } from './helpers';
+import { startGame } from './helpers';
 
 test('two friends create a room, choose decks and play the first turn', async ({ browser }) => {
-  const { ana, beto, errors } = await startGame(browser);
-
-  // Ana plays on the 3D table (the default with WebGL); Beto switches to the 2D table, whose DOM the checks below read.
-  await expect(ana.locator('.table3d canvas')).toBeVisible();
-  await to2D(beto);
+  // Both start on the 2D table, whose DOM the checks below read (the 3D one renders in software on CI, slowly).
+  const { ana, beto, errors } = await startGame(browser, undefined, '2d');
 
   const play = ana.getByRole('button', { name: /^Jugar / }).first();
   const land = ((await play.textContent()) ?? '').replace('Jugar ', '');
@@ -18,4 +15,8 @@ test('two friends create a room, choose decks and play the first turn', async ({
   await ana.waitForTimeout(800); // let the card fly from the hand
   await ana.screenshot({ path: 'test-results/ana-turn1.png', fullPage: true });
   expect(errors).toEqual([]);
+  // The 3D table is one click away, in the options menu.
+  await ana.locator('summary', { hasText: 'Opciones' }).click();
+  await ana.getByRole('button', { name: 'Mesa 3D' }).click();
+  await expect(ana.locator('.table3d canvas')).toBeVisible({ timeout: 20_000 });
 });

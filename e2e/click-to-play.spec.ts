@@ -1,10 +1,8 @@
 import { expect, test } from '@playwright/test';
-import { startGame, to2D } from './helpers';
+import { startGame } from './helpers';
 
 test('tapping a card on the table plays it', async ({ browser }) => {
-  const { ana, beto, errors } = await startGame(browser);
-  await to2D(ana);
-  await to2D(beto);
+  const { ana, beto, errors } = await startGame(browser, undefined, '2d');
 
   const land = ((await ana.getByRole('button', { name: /^Jugar / }).first().textContent()) ?? '').replace('Jugar ', '');
   await ana.locator('.zone', { hasText: 'Tu mano' }).getByTitle(land).first().click();
