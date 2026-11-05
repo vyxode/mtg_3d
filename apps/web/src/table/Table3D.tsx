@@ -1,12 +1,12 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type RefObject } from 'react';
 import { Canvas, useFrame, useThree, type ThreeEvent } from '@react-three/fiber';
 import { Environment, Lightformer, OrbitControls, QuadraticBezierLine } from '@react-three/drei';
-import { AdditiveBlending, ExtrudeGeometry, MathUtils, Plane, Quaternion, Shape, Vector3, type Group, type Mesh, type MeshBasicMaterial } from 'three';
+import { AdditiveBlending, ExtrudeGeometry, MathUtils, Plane, Quaternion, Shape, SphereGeometry, Vector3, type Group, type Mesh, type MeshBasicMaterial } from 'three';
 import type { GameEvent, ObjectId, PlayerId, PlayerView } from '@mtg3d/engine';
 import { displayName } from '@mtg3d/cards';
 import { cardImage } from '../net';
 import { CardImage } from '../CardImage';
-import { CARD_H, CARD_W, layoutTable, libraryPos, type Placement } from './layout';
+import { CARD_H, CARD_W, STACK_H, layoutTable, libraryPos, piles, type Placement } from './layout';
 import { BADGE_ASPECT, MAT_D, MAT_W, backTexture, badgeTexture, cardTexture, matTexture, onTextureLoaded, roundedCorners, woodTexture } from './textures';
 
 /** Each player's cards are in coloured sleeves, as at a real table. */
@@ -52,7 +52,7 @@ export function Table3D({ view, events, usable, selected, onCardClick, names }: 
     const prev = from === undefined ? undefined : positions.current.get(from);
     if (prev) return { at: prev.clone(), faceDown: false };
     const lib = libraryPos(p.owner, me);
-    return { at: new Vector3(lib.x, 0.6, lib.z), faceDown: true };
+    return { at: new Vector3(lib.x, view.players[p.owner].librarySize * STACK_H + 0.05, lib.z), faceDown: true };
   };
   // Damage shakes the card that takes it.
   const hits = useMemo(() => {
@@ -73,6 +73,7 @@ export function Table3D({ view, events, usable, selected, onCardClick, names }: 
         <Room />
         <Mat side={1} name={names[me]} tint="#1f4a40" />
         <Mat side={-1} name={names[opp]} tint="#2a3f55" />
+        {piles(view).map((pl) => <Pile key={pl.key} x={pl.x} z={pl.z} h={pl.h} sleeve={pl.owner === me ? SLEEVES.me : SLEEVES.them} />)}
         {placements.map((p) => (
           <Card3D key={p.key} p={p} sleeve={p.owner === me ? SLEEVES.me : SLEEVES.them} spawn={spawnOf} positions={positions.current} hitAt={hits.get(p.key)}
             clickable={usable.has(p.key) || selected.has(p.key)}
@@ -163,6 +164,17 @@ function Mat({ side, name, tint }: { side: 1 | -1; name: string; tint: string })
     </group>
   );
 }
+
+/** A deck or a graveyard: the sleeves of the cards under the top one, stacked. */
+function Pile({ x, z, h, sleeve }: { x: number; z: number; h: number; sleeve: string }) {
+  return (
+    <mesh geometry={sleeveGeometry} position={[x, h / 2 - 0.004, z]} scale={[1, h / SLEEVE_T, 1]} castShadow receiveShadow>
+      <meshStandardMaterial color={sleeve} roughness={0.5} envMapIntensity={0.7} />
+    </mesh>
+  );
+}
+
+const beadGeometry = new SphereGeometry(0.13, 16, 10).scale(1, 0.55, 1);
 
 const yAxis = new Vector3(0, 1, 0);
 const xAxis = new Vector3(1, 0, 0);
@@ -337,6 +349,12 @@ function Card3D({ p, sleeve, spawn, positions, hitAt, clickable, onDrag, onHover
         <meshStandardMaterial map={backTexture()} emissiveMap={backTexture()} emissive="#ffffff" emissiveIntensity={0.6} color="#7a7a7a"
           roughness={0.3} envMapIntensity={0.5} alphaMap={alpha} alphaTest={0.5} toneMapped={false} />
       </mesh>
+      {/* +1/+1 counters: green glass beads along the card's lower edge. */}
+      {Array.from({ length: p.beads ?? 0 }, (_, i) => (
+        <mesh key={`bead-${String(i)}`} geometry={beadGeometry} castShadow position={[-CARD_W / 2 + 0.3 + (i % 5) * 0.32, SLEEVE_T / 2 + 0.06, CARD_H / 2 - 0.35 - Math.floor(i / 5) * 0.32]}>
+          <meshStandardMaterial color="#5fd08a" roughness={0.08} metalness={0.1} envMapIntensity={1.6} transparent opacity={0.88} />
+        </mesh>
+      ))}
       {/* Badges turn back against the card's yaw so they read upright from the viewer's seat. */}
       {p.badges.map((b, i) => (
         <mesh key={b} rotation={[-Math.PI / 2, 0, -p.yaw]} position={[CARD_W / 2 - 0.6, SLEEVE_T / 2 + 0.004, CARD_H / 2 - 0.3 - i * 0.55]}>

@@ -26,8 +26,13 @@ export interface Placement {
   /** Held in a hand (lifts towards the viewer on hover). */
   inHand?: boolean;
   badges: string[];
+  /** +1/+1 counters, shown as glass beads on the card (as players use). */
+  beads?: number;
   highlight: Highlight;
 }
+
+/** Thickness of one sleeved card in a pile. */
+export const STACK_H = 0.018;
 
 const LIB_X = 13;
 const GRAVE_X = 13;
@@ -38,6 +43,41 @@ const ROW_WIDTH = 22;
 const side = (p: PlayerId, viewer: PlayerId) => (p === viewer ? 1 : -1);
 
 export const libraryPos = (p: PlayerId, viewer: PlayerId) => ({ x: LIB_X, y: 0, z: side(p, viewer) * 6.6 });
+
+/** Deterministic small jitter in −1..1 for an id, so a pile looks dropped by hand and stays the same between redraws. */
+const jitter = (id: string, k: number) => {
+  let h = k;
+  for (const c of id) h = (h * 31 + c.charCodeAt(0)) | 0;
+  return (h % 1000) / 1000;
+};
+
+/** x positions for lands sorted by name: the same lands fanned in one pile, as players keep them; squeezed when they do not fit. */
+export function landPiles(names: readonly string[], width = ROW_WIDTH): number[] {
+  const FAN = 0.5, GAP = 0.45;
+  const groups: number[] = [];
+  names.forEach((n, i) => { if (i > 0 && n === names[i - 1]) groups[groups.length - 1] = (groups[groups.length - 1] ?? 0) + 1; else groups.push(1); });
+  const widths = groups.map((k) => CARD_W + (k - 1) * FAN);
+  const total = widths.reduce((a, b) => a + b, 0) + GAP * (groups.length - 1);
+  const sq = Math.min(1, width / total);
+  const out: number[] = [];
+  let x = (-total * sq) / 2;
+  groups.forEach((k, g) => {
+    for (let i = 0; i < k; i++) out.push(x + (CARD_W / 2 + i * FAN) * sq);
+    x += ((widths[g] ?? 0) + GAP) * sq;
+  });
+  return out;
+}
+
+/** The decks and graveyard piles under their top cards, as boxes this tall. */
+export function piles(view: PlayerView): { key: string; owner: PlayerId; x: number; z: number; h: number }[] {
+  return (['p1', 'p2'] as const).flatMap((p) => {
+    const s = side(p, view.viewer);
+    return [
+      { key: `deck-${p}`, owner: p, x: LIB_X, z: s * 6.6, h: Math.max(0, view.players[p].librarySize - 1) * STACK_H },
+      { key: `grave-${p}`, owner: p, x: GRAVE_X, z: s * 3, h: Math.max(0, view.zones.graveyard[p].length - 3) * STACK_H },
+    ].filter((pile) => pile.h > 0);
+  });
+}
 
 /** x offsets for n cards centered on 0, overlapping when they do not fit in `width`. */
 export function spread(n: number, width = ROW_WIDTH, gap = 0.25): number[] {
@@ -75,27 +115,35 @@ export function layoutTable(view: PlayerView, playable: ReadonlySet<ObjectId> = 
     for (const o of mine.filter((x) => x.attachedTo !== undefined)) { // placed under their host below
       out.push({ key: o.id, card: o.card, owner: o.owner, x: 0, y: 0.01, z: s * 3, yaw, tilt: 0, badges: badgesOf(o), highlight: playable.has(o.id) ? 'playable' : null });
     }
+    rows[1]?.sort((a, b) => a.card.localeCompare(b.card));
     rows.forEach((row, r) => {
-      const xs = spread(row.length);
+      const xs = r === 0 ? spread(row.length) : landPiles(row.map((o) => o.card));
       row.forEach((o, i) => {
         out.push({
           key: o.id, card: o.card, owner: o.owner, x: xs[i] ?? 0, y: 0.01 + i * 0.002, z: s * (r === 0 ? 3 : 6.6),
-          yaw: yaw - (o.tapped ? Math.PI / 2 : 0), tilt: 0, badges: badgesOf(o),
+          yaw: yaw - (o.tapped ? Math.PI / 2 : 0), tilt: 0, badges: badgesOf(o), beads: Math.min(o.counters, 10),
           highlight: attackers.has(o.id) ? 'attacking' : blocking.has(o.id) ? 'blocking' : selected.has(o.id) ? 'selected' : playable.has(o.id) ? 'playable' : null,
         });
       });
     });
 
+    // The graveyard: the last cards lie a little askew on top of the pile.
     const grave = view.zones.graveyard[p];
-    const top = view.objects[grave[grave.length - 1] ?? ''];
-    if (top) out.push({ key: top.id, card: top.card, owner: p, x: GRAVE_X, y: 0.01, z: s * 3, yaw, tilt: 0, badges: [`cementerio ${String(grave.length)}`], highlight: null });
+    grave.slice(-3).forEach((id, i, top) => {
+      const o = view.objects[id];
+      const n = grave.length - top.length + i;
+      if (o) out.push({
+        key: o.id, card: o.card, owner: p, x: GRAVE_X + jitter(id, 1) * 0.15, y: 0.01 + n * STACK_H, z: s * 3 + jitter(id, 2) * 0.15, yaw: yaw + jitter(id, 3) * 0.12, tilt: 0,
+        badges: i === top.length - 1 ? [`cementerio ${String(grave.length)}`] : [], highlight: null,
+      });
+    });
 
     const exiled = view.zones.exile.map((id) => view.objects[id]).filter((o): o is VisibleObject => o?.owner === p);
     const lastExiled = exiled[exiled.length - 1];
     if (lastExiled) out.push({ key: lastExiled.id, card: lastExiled.card, owner: p, x: EXILE_X, y: 0.01, z: s * 3, yaw, tilt: 0, badges: [`exilio ${String(exiled.length)}`], highlight: null });
 
     const lib = view.players[p].librarySize;
-    if (lib > 0) out.push({ key: `library-${p}`, card: null, owner: p, ...libraryPos(p, me), y: lib * 0.01, yaw, tilt: 0, badges: [`biblioteca ${String(lib)}`], highlight: null });
+    if (lib > 0) out.push({ key: `library-${p}`, card: null, owner: p, ...libraryPos(p, me), y: 0.01 + (lib - 1) * STACK_H, yaw, tilt: 0, badges: [`biblioteca ${String(lib)}`], highlight: null });
   }
 
   // Attackers step towards the middle; each blocker moves in front of the attacker it blocks.

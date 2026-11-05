@@ -480,3 +480,11 @@ kbd { font: .72rem var(--sans); opacity: .7; margin-left: 6px; border: 1px solid
 .table3d > :not(div:first-child) { z-index: 1; }
 .decision .hint { font-size: .88rem; margin: 0 0 6px; }
 .game.mode-2d .hint { display: none; } /* dragging is only on the 3D table */
+
+/* The opponent is deciding: three dots, like someone thinking across the table. */
+.playerbar .thinking { margin-left: 8px; font: italic .9rem var(--sans); color: var(--brass); }
+.playerbar .thinking i { font-style: normal; animation: think 1.2s infinite; opacity: .2; }
+.playerbar .thinking i:nth-child(2) { animation-delay: .2s; }
+.playerbar .thinking i:nth-child(3) { animation-delay: .4s; }
+@keyframes think { 30% { opacity: 1; } 60% { opacity: .2; } }
+@media (prefers-reduced-motion: reduce) { .playerbar .thinking i { animation: none; opacity: 1; } }

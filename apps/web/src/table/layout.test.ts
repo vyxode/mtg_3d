@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { CARDS } from '@mtg3d/cards';
 import { viewFor } from '@mtg3d/engine';
 import { scenario } from '@mtg3d/engine/testing';
-import { CARD_W, layoutTable, spread } from './layout';
+import { CARD_W, landPiles, layoutTable, spread } from './layout';
 
 const board = () => scenario(CARDS, {
   p1: { hand: ['Lightning Bolt', 'Forest'], battlefield: ['Grizzly Bears', { card: 'Mountain', tapped: true }], library: ['Forest', 'Forest'] },
@@ -56,5 +56,13 @@ describe('table layout', () => {
     expect((few[1] ?? 0) - (few[0] ?? 0)).toBeGreaterThanOrEqual(CARD_W);
     const many = spread(30, 22);
     expect((many[29] ?? 0) - (many[0] ?? 0)).toBeCloseTo(22 - CARD_W);
+  });
+
+  it('keeps the same lands in one fanned pile, apart from the others', () => {
+    const [a = 0, b = 0, c = 0, d = 0] = landPiles(['Forest', 'Forest', 'Forest', 'Island']);
+    expect(b - a).toBeCloseTo(0.5);
+    expect(d - c).toBeGreaterThan(CARD_W);
+    const many = landPiles(Array.from({ length: 20 }, (_, i) => `Land ${String(i)}`));
+    expect((many[19] ?? 0) - (many[0] ?? 0)).toBeLessThanOrEqual(22);
   });
 });

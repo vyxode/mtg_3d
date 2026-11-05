@@ -122,7 +122,7 @@ export function Game({ room, update, onError }: Props) {
   return (
     <TableContext.Provider value={link}>
     <main className={`game mode-${mode}`}>
-      <PlayerBar view={view} p={opp} name={nameOf(opp)} active={view.turn.active === opp} away={room.seats[opp]?.connected === false} />
+      <PlayerBar view={view} p={opp} name={nameOf(opp)} active={view.turn.active === opp} away={room.seats[opp]?.connected === false} thinking={view.pending?.player === opp && !view.result} />
       <PhaseTrack view={view} whose={view.turn.active === me ? 'juegas tú' : `juega ${nameOf(view.turn.active)}`} />
 
       {!view.result && room.seats[opp]?.connected === false && (
@@ -223,7 +223,7 @@ function FullControl({ room }: { room: RoomState }) {
   );
 }
 
-function PlayerBar({ view, p, name, active, away }: { view: PlayerView; p: PlayerId; name: string; active: boolean; away?: boolean }) {
+function PlayerBar({ view, p, name, active, away, thinking }: { view: PlayerView; p: PlayerId; name: string; active: boolean; away?: boolean; thinking?: boolean }) {
   const pl = view.players[p];
   // A change of life floats up from the medallion ("−3", "+2"), like a counter clicking.
   const prev = useRef(pl.life);
@@ -241,6 +241,7 @@ function PlayerBar({ view, p, name, active, away }: { view: PlayerView; p: Playe
       </span>
       <span className="who">
         <b>{name}</b>{away && <span className="away"> desconectado</span>}
+        {thinking && !away && <span className="thinking" aria-label="pensando">pensando<i>.</i><i>.</i><i>.</i></span>}
         <span className="counts"><span>Mano {pl.handSize}</span><span>Biblioteca {pl.librarySize}</span></span>
       </span>
       <ManaPips pool={pl.manaPool} />
