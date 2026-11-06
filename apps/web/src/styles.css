@@ -556,3 +556,43 @@ kbd { font: .72rem var(--sans); opacity: .7; margin-left: 6px; border: 1px solid
 
 /* Shown while the card list loads, before the app starts. */
 .boot { min-height: 100vh; display: grid; place-items: center; margin: 0; font: italic 1.2rem Alegreya, Georgia, serif; color: #cbbfa6; background: #10241f; }
+
+/* ---------- By the card: what a click does, and a menu when it can do several things ---------- */
+.card-hint {
+  white-space: nowrap; padding: 5px 12px; border-radius: 999px; font: 600 .86rem var(--sans); color: var(--ink);
+  background: linear-gradient(#f6edd8, #e3d3b0); box-shadow: 0 6px 16px rgba(0, 0, 0, .45); animation: hint-in .15s ease-out;
+}
+@keyframes hint-in { from { opacity: 0; transform: translateY(4px); } }
+.card-menu {
+  display: flex; flex-direction: column; gap: 6px; min-width: 190px; padding: 10px; border-radius: 12px;
+  background: rgba(239, 230, 210, .97); color: var(--ink); box-shadow: 0 14px 34px rgba(0, 0, 0, .55); animation: hint-in .15s ease-out;
+}
+.card-menu button { text-align: left; }
+.card-menu .link { color: var(--ink); opacity: .7; text-align: center; }
+
+/* ---------- Passing, like a chess clock ---------- */
+.clock { display: none; }
+@media (min-width: 1000px) {
+  .game.mode-3d .clock {
+    position: absolute; right: 414px; bottom: 26px; z-index: 6; display: grid; place-items: center; align-content: center; gap: 2px;
+    width: 116px; height: 116px; border-radius: 50%; padding: 0; border: 4px solid #3b2a14;
+    font-family: var(--serif); color: var(--ink); cursor: pointer;
+    background: radial-gradient(circle at 38% 30%, #ffe3a3, var(--brass) 58%, #8a6420);
+    box-shadow: 0 0 0 3px rgba(212, 162, 76, .35), 0 12px 30px rgba(0, 0, 0, .55), 0 0 40px rgba(212, 162, 76, .45);
+    transition: transform .15s ease, box-shadow .2s ease;
+    animation: clock-ready 2.4s ease-in-out infinite;
+  }
+  .game.mode-3d .clock b { font-size: 1.35rem; line-height: 1; }
+  .game.mode-3d .clock small { font: .78rem var(--sans); opacity: .8; }
+  .game.mode-3d .clock.mine:hover { transform: scale(1.05); }
+  .game.mode-3d .clock.mine:active { transform: scale(.96); }
+  .game.mode-3d .clock.theirs {
+    cursor: default; animation: none; color: var(--parchment-dim);
+    background: radial-gradient(circle at 38% 30%, #3a4a44, #1b2622 70%); border-color: #0d1311;
+    box-shadow: 0 10px 26px rgba(0, 0, 0, .5);
+  }
+  .game.mode-3d .clock.theirs b { font-size: 1rem; max-width: 90px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .game.mode-3d .decision .pass { display: none; } /* the clock passes */
+}
+@keyframes clock-ready { 50% { box-shadow: 0 0 0 6px rgba(212, 162, 76, .25), 0 12px 30px rgba(0, 0, 0, .55), 0 0 60px rgba(212, 162, 76, .6); } }
+@media (prefers-reduced-motion: reduce) { .game.mode-3d .clock { animation: none; } }

@@ -19,10 +19,22 @@ const webglAvailable = (): boolean => {
  */
 interface TableLink {
   subscribe(fn: (id: ObjectId) => void): () => void;
+  /** A card dragged on the 3D table and let go over another card (or over empty table, `target` null, at depth `z`). */
+  subscribeDrop(fn: (id: ObjectId, target: ObjectId | null, z: number) => void): () => void;
   /** Cards the open panel can use now (gold) and cards already chosen (green); null = default highlights. */
   mark(offer: ObjectId[] | null, chosen: ObjectId[]): void;
+  /** A small menu floating by a card on the 3D table, for a card with several things to do. */
+  menu(m: CardMenu | null): void;
 }
-const TableContext = createContext<TableLink>({ subscribe: () => () => undefined, mark: () => undefined });
+export interface CardMenu { id: ObjectId; items: { label: string; run: () => void }[]; onClose: () => void }
+const TableContext = createContext<TableLink>({ subscribe: () => () => undefined, subscribeDrop: () => () => undefined, mark: () => undefined, menu: () => undefined });
+
+function useTableDrop(fn: (id: ObjectId, target: ObjectId | null, z: number) => void): void {
+  const link = useContext(TableContext);
+  const latest = useRef(fn);
+  latest.current = fn;
+  useEffect(() => link.subscribeDrop((id, target, z) => { latest.current(id, target, z); }), [link]);
+}
 
 function useTableClick(fn: (id: ObjectId) => void): void {
   const link = useContext(TableContext);
@@ -105,14 +117,32 @@ export function Game({ room, update, onError }: Props) {
   };
 
   const listeners = useRef(new Set<(id: ObjectId) => void>());
+  const dropListeners = useRef(new Set<(id: ObjectId, target: ObjectId | null, z: number) => void>());
   const [marks, setMarks] = useState<{ offer: ObjectId[] | null; chosen: ObjectId[] }>({ offer: null, chosen: [] });
+  const [menu, setMenu] = useState<CardMenu | null>(null);
   const link = useMemo<TableLink>(() => ({
     subscribe: (fn) => { listeners.current.add(fn); return () => { listeners.current.delete(fn); }; },
+    subscribeDrop: (fn) => { dropListeners.current.add(fn); return () => { dropListeners.current.delete(fn); }; },
     mark: (offer, chosen) => { setMarks({ offer, chosen }); },
+    menu: setMenu,
   }), []);
   const onCardClick = (id: ObjectId) => { for (const fn of listeners.current) fn(id); };
-  const usable = new Set(marks.offer ?? (mine?.kind === 'priority' ? usableActions(view, mine.legal).filter((a) => a.kind !== 'activateMana').map(subject) : []));
+  const onCardDrop = (id: ObjectId, target: ObjectId | null, z: number) => { for (const fn of dropListeners.current) fn(id, target, z); };
+  const priorityActs = mine?.kind === 'priority' ? usableActions(view, mine.legal).filter((a) => a.kind !== 'activateMana') : [];
+  const usable = new Set(marks.offer ?? priorityActs.map(subject));
   const chosen = new Set(marks.chosen);
+  // What clicking a card does, shown by the card when you point at it.
+  const hints = new Map<ObjectId, string>();
+  if (marks.offer) {
+    const verb = mine?.kind === 'declareAttackers' ? 'Atacar · o arrástrala hacia el rival' : mine?.kind === 'declareBlockers' ? 'Bloquear · o arrástrala sobre el atacante' : 'Elegir';
+    for (const id of marks.offer) hints.set(id, verb);
+  } else {
+    for (const a of priorityActs) {
+      const id = subject(a);
+      const verb = a.kind === 'playLand' ? 'Jugar' : a.kind === 'cast' ? 'Lanzar' : 'Activar';
+      hints.set(id, hints.has(id) ? 'Varias opciones' : view.objects[id]?.zone === 'hand' ? `${verb} · o arrástrala a la mesa` : verb);
+    }
+  }
 
   const battlefield = (p: PlayerId) => view.zones.battlefield.map((id) => view.objects[id]).filter((o): o is VisibleObject => o?.controller === p);
 
@@ -137,7 +167,8 @@ export function Game({ room, update, onError }: Props) {
 
       <section className="arena" aria-label="Mesa">
         {mode === '3d'
-          ? <Suspense fallback={<div className="table3d loading"><p>Preparando la mesa…</p></div>}><Table3D view={view} events={update.events} usable={usable} selected={chosen} onCardClick={onCardClick} names={{ p1: nameOf('p1'), p2: nameOf('p2') }} /></Suspense>
+          ? <Suspense fallback={<div className="table3d loading"><p>Preparando la mesa…</p></div>}><Table3D view={view} events={update.events} usable={usable} selected={chosen} onCardClick={onCardClick} names={{ p1: nameOf('p1'), p2: nameOf('p2') }}
+            hints={hints} menu={menu} onCardDrop={onCardDrop} combatDrag={mine?.kind === 'declareAttackers' || mine?.kind === 'declareBlockers'} /></Suspense>
           : (<div className="table2d">
               <Zone title={`Campo de ${nameOf(opp)}`} cards={battlefield(opp)} selected={chosen} onClick={onCardClick} />
               <Zone title="Tu campo" cards={battlefield(me)} selected={chosen} onClick={onCardClick} />
@@ -183,6 +214,7 @@ export function Game({ room, update, onError }: Props) {
         </div>
       </details>
       {announce && <p key={announce.id} className={`announcer${announce.big ? ' big' : ''}`} role="status">{announce.text}</p>}
+      {mode === '3d' && !view.result && <Clock view={view} mine={mine} nameOf={nameOf} send={send} />}
     </main>
     </TableContext.Provider>
   );
@@ -421,6 +453,20 @@ function OrderTriggers({ d, send }: { d: Extract<PendingDecision, { kind: 'order
   </>);
 }
 
+/** Passing, like a chess clock: lit and pressable when it is your move, showing who thinks when it is not. */
+function Clock({ view, mine, nameOf, send }: { view: PlayerView; mine: PendingDecision | null; nameOf: (p: PlayerId) => string; send: (r: Response) => Promise<void> }) {
+  const mineNow = mine?.kind === 'priority';
+  const other = view.pending && view.pending.player !== view.viewer ? view.pending.player : null;
+  if (!mineNow && !other) return null; // another of your decisions is open in the panel
+  return (
+    <button className={`clock ${mineNow ? 'mine' : 'theirs'}`} disabled={!mineNow} onClick={() => void send({ kind: 'pass' })}
+      title={mineNow ? 'Pasar (espacio)' : undefined}>
+      <b>{mineNow ? 'Pasar' : nameOf(other ?? view.viewer)}</b>
+      <small>{mineNow ? (view.stack.length ? 'resolver la pila' : 'seguir') : 'pensando…'}</small>
+    </button>
+  );
+}
+
 function Attackers({ view, d, send, nameOf }: { view: PlayerView; d: Extract<PendingDecision, { kind: 'declareAttackers' }>; send: (r: Response) => Promise<void>; nameOf: (p: PlayerId) => string }) {
   const [picked, setPicked] = useState<Set<ObjectId>>(new Set());
   const [aims, setAims] = useState<Record<ObjectId, ObjectId>>({});
@@ -428,6 +474,8 @@ function Attackers({ view, d, send, nameOf }: { view: PlayerView; d: Extract<Pen
   const opp = nameOf(view.viewer === 'p1' ? 'p2' : 'p1');
   useTableMarks(d.candidates, [...picked]);
   useTableClick((id) => { if (d.candidates.includes(id)) toggle(id); });
+  // Pushed forward towards the opponent: attacks; pulled back to your side: stays home.
+  useTableDrop((id, _target, z) => { if (d.candidates.includes(id) && (z < 1.5) !== picked.has(id)) toggle(id); });
   return (<>
     <h3>Elige atacantes</h3>
     <p className="muted">Toca tus criaturas en la mesa o aquí abajo.</p>
@@ -458,6 +506,10 @@ function Blockers({ view, d, send }: { view: PlayerView; d: Extract<PendingDecis
     if (!blockers.includes(id)) return;
     if (blocks[id]) { setBlocks({ ...blocks, [id]: '' }); return; }
     setArmed(armed === id ? null : id);
+  });
+  // Dropped on an attacker: blocks it.
+  useTableDrop((id, target) => {
+    if (target && d.candidates.find((c) => c.blocker === id)?.attackers.includes(target)) { setBlocks({ ...blocks, [id]: target }); setArmed(null); }
   });
   return (<>
     <h3>Declara bloqueadores</h3>
@@ -561,6 +613,24 @@ function Priority({ view, d, nameOf, send, onError }: { view: PlayerView; d: Ext
     if (acts.length === 1) choose(acts[0] as LegalAction);
     else if (acts.length > 1) setFocus(id); // several options (e.g. cast or warp): show just that card's
   });
+  const label = (a: LegalAction): string[] => {
+    if (a.kind === 'playLand') return [`Jugar ${shown(a.card)}${view.objects[a.card]?.zone === 'graveyard' ? ' desde el cementerio' : ''}`];
+    if (a.kind === 'cast') return [`Lanzar ${shown(a.card)}${a.warp ? ' por warp' : a.flashback ? ' con flashback' : view.objects[a.card]?.zone === 'exile' ? ' desde el exilio' : ''}`];
+    if (a.kind === 'activate') return [`${shown(a.source)}: ${CARDS.get(cardOf(a.source))?.activated?.[a.ability]?.text ?? 'activar'}`];
+    return [];
+  };
+  // The same options float by the card on the 3D table.
+  const link = useContext(TableContext);
+  useEffect(() => {
+    if (!focus) { link.menu(null); return undefined; }
+    const acts = usableActions(view, d.legal).filter((a) => a.kind !== 'activateMana' && subject(a) === focus);
+    link.menu({
+      id: focus,
+      items: acts.flatMap((a) => label(a).map((text) => ({ label: text, run: () => { setFocus(null); choose(a); } }))),
+      onClose: () => { setFocus(null); },
+    });
+    return () => { link.menu(null); };
+  }, [focus, d.id]);
 
   if (crewing) {
     return <CrewPicker view={view} vehicle={crewing.source} need={crewNeed(crewing) ?? 0}
@@ -577,12 +647,6 @@ function Priority({ view, d, nameOf, send, onError }: { view: PlayerView; d: Ext
   const usable = usableActions(view, d.legal).filter((a) => focus === null || subject(a) === focus);
   const plays = usable.filter((a) => a.kind !== 'activateMana');
   const mana = usable.filter((a) => a.kind === 'activateMana');
-  const label = (a: LegalAction): string[] => {
-    if (a.kind === 'playLand') return [`Jugar ${shown(a.card)}${view.objects[a.card]?.zone === 'graveyard' ? ' desde el cementerio' : ''}`];
-    if (a.kind === 'cast') return [`Lanzar ${shown(a.card)}${a.warp ? ' por warp' : a.flashback ? ' con flashback' : view.objects[a.card]?.zone === 'exile' ? ' desde el exilio' : ''}`];
-    if (a.kind === 'activate') return [`${shown(a.source)}: ${CARDS.get(cardOf(a.source))?.activated?.[a.ability]?.text ?? 'activar'}`];
-    return [];
-  };
   // Identical cards in hand (four Forests) or identical lands to tap are interchangeable: one button each.
   const once = new Set<string>();
   const fresh = (text: string, interchangeable: boolean) => {
@@ -610,7 +674,7 @@ function Priority({ view, d, nameOf, send, onError }: { view: PlayerView; d: Ext
       </details>
     )}
     {focus && <button className="link" onClick={() => { setFocus(null); }}>Ver todas las acciones</button>}
-    <button className="primary" onClick={() => void send({ kind: 'pass' })} aria-keyshortcuts="Space">{view.stack.length ? 'Pasar (resolver)' : 'Pasar'} <kbd>espacio</kbd></button>
+    <button className="primary pass" onClick={() => void send({ kind: 'pass' })} aria-keyshortcuts="Space">{view.stack.length ? 'Pasar (resolver)' : 'Pasar'} <kbd>espacio</kbd></button>
   </>);
 }
 

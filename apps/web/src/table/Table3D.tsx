@@ -1,11 +1,12 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type RefObject } from 'react';
 import { Canvas, useFrame, useThree, type ThreeEvent } from '@react-three/fiber';
-import { Environment, Lightformer, OrbitControls, QuadraticBezierLine } from '@react-three/drei';
+import { Environment, Html, Lightformer, OrbitControls, QuadraticBezierLine } from '@react-three/drei';
 import { AdditiveBlending, ExtrudeGeometry, MathUtils, Plane, Quaternion, Shape, SphereGeometry, Vector3, type Group, type Mesh, type MeshBasicMaterial } from 'three';
 import type { GameEvent, ObjectId, PlayerId, PlayerView } from '@mtg3d/engine';
 import { displayName } from '@mtg3d/cards';
 import { cardImage } from '../net';
 import { CardImage } from '../CardImage';
+import type { CardMenu } from '../Game';
 import { CARD_H, CARD_W, STACK_H, layoutTable, libraryPos, piles, type Placement } from './layout';
 import { BADGE_ASPECT, MAT_D, MAT_W, backTexture, badgeTexture, cardTexture, matTexture, onTextureLoaded, roundedCorners, runeTexture, woodTexture } from './textures';
 
@@ -28,9 +29,17 @@ interface Props {
   selected: ReadonlySet<ObjectId>;
   onCardClick: (id: ObjectId) => void;
   names: Record<PlayerId, string>;
+  /** What clicking a card does ("Lanzar · o arrástrala a la mesa"), shown by the card you point at. */
+  hints?: ReadonlyMap<ObjectId, string>;
+  /** Several things a card can do, floating by it. */
+  menu?: CardMenu | null;
+  /** A card let go after dragging: over another card (`target`) or over the table at depth `z`. */
+  onCardDrop?: (id: ObjectId, target: ObjectId | null, z: number) => void;
+  /** While declaring attackers or blockers, your creatures can be dragged too. */
+  combatDrag?: boolean;
 }
 
-export function Table3D({ view, events, usable, selected, onCardClick, names }: Props) {
+export function Table3D({ view, events, usable, selected, onCardClick, names, hints, menu, onCardDrop, combatDrag = false }: Props) {
   const [hover, setHover] = useState<Placement | null>(null);
   const placements = layoutTable(view, usable, selected, hover?.inHand ? hover.key : null);
   const [pinned, setPinned] = useState<Placement | null>(null);
@@ -84,6 +93,18 @@ export function Table3D({ view, events, usable, selected, onCardClick, names }: 
         {placements.map((p) => (
           <Card3D key={p.key} p={p} sleeve={p.owner === me ? SLEEVES.me : SLEEVES.them} spawn={spawnOf} positions={positions.current} hitAt={hits.get(p.key)} lungeAt={lunges.get(p.key)}
             clickable={usable.has(p.key) || selected.has(p.key)}
+            draggable={p.inHand === true || (combatDrag && p.owner === me && (usable.has(p.key) || selected.has(p.key)))}
+            onDrop={(at) => {
+              // The card it was let go over, if any: the nearest other card on the table within a card's reach.
+              let target: string | null = null;
+              let best = 1.6;
+              for (const q of placements) {
+                if (q.key === p.key || q.inHand || !q.card) continue;
+                const d = Math.hypot(q.x - at.x, q.z - at.z);
+                if (d < best) { best = d; target = q.key; }
+              }
+              onCardDrop?.(p.key, target, at.z);
+            }}
             onDrag={(on) => { if (controls.current) controls.current.enabled = !on; }}
             onHover={(on) => { setHover(on && p.card ? p : null); }}
             onPick={() => {
@@ -92,6 +113,23 @@ export function Table3D({ view, events, usable, selected, onCardClick, names }: 
               if (usable.has(p.key) || selected.has(p.key)) onCardClick(p.key); else setPinned(pinned?.key === p.key ? null : p);
             }} />
         ))}
+        {hover && hints?.get(hover.key) && !menu && (
+          <Html position={[hover.x, hover.inHand ? hover.y + 5.4 : hover.y + 0.4, hover.inHand ? hover.z + 1.2 : hover.z - Math.sign(hover.z || 1) * (CARD_H / 2 + 0.2)]}
+            center zIndexRange={[20, 10]} className="card-hint" style={{ pointerEvents: 'none' }}>
+            {hints.get(hover.key)}
+          </Html>
+        )}
+        {menu && (() => {
+          const at = placements.find((q) => q.key === menu.id);
+          return at && (
+            <Html position={[at.x, at.inHand ? at.y + 5.6 : at.y + 0.5, at.inHand ? at.z + 1.2 : at.z]} center zIndexRange={[30, 20]}>
+              <div className="card-menu" role="menu" aria-label={`Qué hacer con ${displayName(at.card ?? '')}`}>
+                {menu.items.map((it) => <button key={it.label} role="menuitem" onClick={it.run}>{it.label}</button>)}
+                <button className="link" onClick={menu.onClose}>Cancelar</button>
+              </div>
+            </Html>
+          );
+        })()}
         {view.stack.length > 0 && <SpellCircle />}
         <Arrows view={view} positions={positions.current} />
       </Canvas>
@@ -242,11 +280,11 @@ const LAND_FX = 0.45; // seconds of the ring a card leaves when it is put down o
 const CARRY = new Plane(new Vector3(0, 1, 0), -1.4);
 const DROP_Z = 10.2;
 
-function Card3D({ p, sleeve, spawn, positions, hitAt, lungeAt, clickable, onDrag, onHover, onPick }: {
+function Card3D({ p, sleeve, spawn, positions, hitAt, lungeAt, clickable, draggable, onDrop, onDrag, onHover, onPick }: {
   p: Placement; sleeve: string; spawn: (p: Placement) => { at: Vector3; faceDown: boolean }; positions: Map<string, Vector3>; hitAt: number | undefined; lungeAt: number | undefined;
-  clickable: boolean; onDrag: (on: boolean) => void; onHover: (on: boolean) => void; onPick: () => void;
+  clickable: boolean; draggable: boolean; onDrop: (at: Vector3) => void; onDrag: (on: boolean) => void; onHover: (on: boolean) => void; onPick: () => void;
 }) {
-  const drag = useRef<{ at: Vector3; moved: boolean } | null>(null);
+  const drag = useRef<{ at: Vector3; from: Vector3; moved: boolean } | null>(null);
   const justDragged = useRef(false);
   const ref = useRef<Group>(null);
   const hit = useRef<Group>(null); // where the pointer finds the card: stays put while the card lifts, so hovering cannot flicker
@@ -343,16 +381,17 @@ function Card3D({ p, sleeve, spawn, positions, hitAt, lungeAt, clickable, onDrag
       onPointerOver={(e) => { e.stopPropagation(); setHovered(true); onHover(true); if (clickable) document.body.style.cursor = 'pointer'; }}
       onPointerOut={() => { setHovered(false); onHover(false); document.body.style.cursor = ''; }}
       onPointerDown={(e: ThreeEvent<PointerEvent>) => {
-        if (!p.inHand) return; // any card can be picked up; only a playable one is played when let go
+        if (!draggable) return; // any card in hand can be picked up; only a playable one is played when let go
         e.stopPropagation();
         (e.target as Element).setPointerCapture(e.pointerId);
-        drag.current = { at: ref.current?.position.clone() ?? new Vector3(), moved: false };
+        const from = ref.current?.position.clone() ?? new Vector3();
+        drag.current = { at: from.clone(), from, moved: false };
         onDrag(true);
       }}
       onPointerMove={(e: ThreeEvent<PointerEvent>) => {
         const d = drag.current;
         if (!d || !e.ray.intersectPlane(CARRY, d.at)) return;
-        d.moved ||= d.at.z < p.z - 0.8;
+        d.moved ||= Math.hypot(d.at.x - d.from.x, d.at.z - d.from.z) > 0.8;
         invalidate();
       }}
       onPointerUp={(e: ThreeEvent<PointerEvent>) => {
@@ -366,7 +405,7 @@ function Card3D({ p, sleeve, spawn, positions, hitAt, lungeAt, clickable, onDrag
         // Back towards the hand from where it was let go; if it was played, the server moves it to the table first.
         base.current.copy(g.position);
         tween.current = { from: g.position.clone(), to: new Vector3(x, y, z), qFrom: g.quaternion.clone(), qTo: orientation(p), t0: now(), dur: reducedMotion ? 0 : 0.3, arc: 0, lands: false };
-        if (d.moved && d.at.z < DROP_Z && clickable) onPick();
+        if (d.moved && p.inHand) { if (d.at.z < DROP_Z && clickable) onPick(); } else if (d.moved) onDrop(d.at);
         invalidate();
       }}
       onClick={(e) => { e.stopPropagation(); if (justDragged.current) { justDragged.current = false; return; } onPick(); }}>
