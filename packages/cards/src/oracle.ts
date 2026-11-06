@@ -183,7 +183,8 @@ const SPEC_ES: Record<TargetSpec, string> = {
   nonlandPermanent: 'permanente objetivo que no sea tierra', artifact: 'artefacto objetivo', enchantment: 'encantamiento objetivo', artifactOrEnchantment: 'artefacto o encantamiento objetivo',
   planeswalker: 'planeswalker objetivo', creatureOrPlaneswalker: 'criatura o planeswalker objetivo', land: 'tierra objetivo', nonbasicLand: 'tierra no básica objetivo', opponent: 'oponente objetivo',
 };
-const KW_ES: Record<string, string> = {
+/** Spanish names of keywords (and granted abilities), as printed on Spanish cards. */
+export const KW_ES: Record<string, string> = {
   Flying: 'vuela', Reach: 'alcance', Vigilance: 'vigilancia', Haste: 'prisa', Defender: 'defensor', Menace: 'amenaza', 'First strike': 'dañar primero',
   'Double strike': 'dañar dos veces', Deathtouch: 'toque mortal', Trample: 'arrollar', Lifelink: 'vínculo vital', Indestructible: 'indestructible', Flash: 'destello',
   cantBeBlocked: 'no puede ser bloqueada',

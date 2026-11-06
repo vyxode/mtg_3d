@@ -145,7 +145,7 @@ export function DeckBuilder() {
           <div className="results">
             {results.cards.map((c) => (
               <div key={c.name} className="result" draggable onDragStart={(e) => { e.dataTransfer.setData('text/plain', c.name); }}>
-                <CardImage name={displayName(c.name)} src={c.image ?? cardImage(c.name)} loading="lazy" onClick={() => { setDetail(c); }} />
+                <CardImage name={c.name} src={c.image ?? cardImage(c.name)} loading="lazy" onClick={() => { setDetail(c); }} />
                 <button className="link result-name" onClick={() => { setDetail(c); }}>{displayName(c.name)}</button>
                 <div className="result-actions">
                   {!CARDS.has(c.name) && <span className="badge" title="El motor todavía no implementa esta carta">no jugable</span>}

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { CARDS, PRESET_DECKS, displayName } from '@mtg3d/cards';
+import { CARDS, PRESET_DECKS } from '@mtg3d/cards';
 import type { GameUpdate, JoinAck, RoomState } from '@mtg3d/protocol';
 import { P2P, ask, cardImage, loadSession, saveSession, socket } from './net';
 import { CardImage } from './CardImage';
@@ -190,7 +190,7 @@ function WaitingRoom({ room, onError }: { room: RoomState; onError: (e: string |
             return (
               <label key={n} className={`deck-box${n === deck ? ' chosen' : ''}`}>
                 <input type="radio" name="deck" value={n} checked={n === deck} disabled={me?.ready} onChange={() => { setDeck(n); }} />
-                <span className="deck-art">{cover && <CardImage name={displayName(cover)} src={cardImage(cover)} loading="lazy" />}</span>
+                <span className="deck-art">{cover && <CardImage name={cover} src={cardImage(cover)} loading="lazy" />}</span>
                 <span className="deck-name">{n}</span>
                 <span className="deck-facts"><span>{cards.length} cartas</span> <ManaPips pool={deckColors(cards)} /></span>
               </label>

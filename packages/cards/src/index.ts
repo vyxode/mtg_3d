@@ -8,7 +8,7 @@ export const CARDS: CardRegistry = registry;
 export function registerCards(defs: readonly CardDef[]): void {
   for (const d of defs) if (!registry.has(d.name)) registry.set(d.name, d);
 }
-export { compileOracle, type Compiled, type OracleCard } from './oracle';
+export { KW_ES, compileOracle, type Compiled, type OracleCard } from './oracle';
 export { DEFS };
 export { PRESET_DECKS, validateCasualDeck } from './decks';
 export { displayName, spanish, type EsCard } from './i18n';

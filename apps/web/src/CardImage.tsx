@@ -1,8 +1,12 @@
 import { useState, type ImgHTMLAttributes } from 'react';
+import { displayName } from '@mtg3d/cards';
+import { placeholderUrl } from './placeholder';
 
-/** A card image that falls back to a frame with the card's name if the image can't be loaded (never a wrong picture). */
-export function CardImage({ name, src, className, ...rest }: { name: string; src: string } & Omit<ImgHTMLAttributes<HTMLImageElement>, 'src' | 'alt'>) {
+/**
+ * A card's image by its (English) name; if it can't be loaded, a plain frame drawn from the card's own data
+ * (name, cost, type, Spanish text), never a wrong picture.
+ */
+export function CardImage({ name, src, ...rest }: { name: string; src: string } & Omit<ImgHTMLAttributes<HTMLImageElement>, 'src' | 'alt'>) {
   const [broken, setBroken] = useState(false);
-  if (broken) return <span className={`card-fallback ${className ?? ''}`} role="img" aria-label={name}><span>{name}</span></span>;
-  return <img {...rest} className={className} src={src} alt={name} onError={() => { setBroken(true); }} />;
+  return <img {...rest} src={broken ? placeholderUrl(name) : src} alt={displayName(name)} onError={() => { setBroken(true); }} />;
 }

@@ -596,3 +596,25 @@ kbd { font: .72rem var(--sans); opacity: .7; margin-left: 6px; border: 1px solid
 }
 @keyframes clock-ready { 50% { box-shadow: 0 0 0 6px rgba(212, 162, 76, .25), 0 12px 30px rgba(0, 0, 0, .55), 0 0 60px rgba(212, 162, 76, .6); } }
 @media (prefers-reduced-motion: reduce) { .game.mode-3d .clock { animation: none; } }
+
+/* ---------- A card held up to read ---------- */
+.card-zoom {
+  position: absolute; inset: 0; z-index: 40; display: flex; align-items: center; justify-content: center; gap: 28px; padding: 24px;
+  background: radial-gradient(ellipse at 50% 50%, rgba(5, 9, 8, .55), rgba(5, 9, 8, .82)); backdrop-filter: blur(3px);
+  pointer-events: none; animation: zoom-in .18s ease-out;
+}
+.card-zoom img, .card-zoom .card-fallback {
+  height: min(78vh, 640px); width: auto; aspect-ratio: 63 / 88; border-radius: 4.6% / 3.4%; object-fit: cover;
+  box-shadow: 0 30px 70px rgba(0, 0, 0, .7), 0 0 0 1px rgba(255, 255, 255, .06);
+}
+.card-zoom-text { max-width: 340px; display: flex; flex-direction: column; gap: 8px; color: var(--parchment); }
+.card-zoom-text h2 { margin: 0; font: 700 1.6rem var(--serif); }
+.card-zoom-text p { margin: 0; line-height: 1.45; }
+.card-zoom .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.card-zoom .chips span { padding: 3px 10px; border-radius: 999px; font-size: .85rem; background: rgba(212, 162, 76, .18); border: 1px solid rgba(212, 162, 76, .5); }
+.card-zoom .chips.state span { background: rgba(255, 255, 255, .06); border-color: var(--line); }
+.card-zoom .small { font-size: .82rem; }
+@keyframes zoom-in { from { opacity: 0; } }
+.card-zoom img { animation: zoom-card .22s cubic-bezier(.2, 1.2, .4, 1); }
+@keyframes zoom-card { from { transform: translateY(40px) scale(.85); } }
+@media (max-width: 760px) { .card-zoom { flex-direction: column; gap: 12px; } .card-zoom img, .card-zoom .card-fallback { height: min(56vh, 460px); } }

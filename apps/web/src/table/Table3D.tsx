@@ -3,7 +3,7 @@ import { Canvas, useFrame, useThree, type ThreeEvent } from '@react-three/fiber'
 import { Environment, Html, Lightformer, OrbitControls, QuadraticBezierLine } from '@react-three/drei';
 import { AdditiveBlending, ExtrudeGeometry, MathUtils, Plane, Quaternion, Shape, SphereGeometry, Vector3, type Group, type Mesh, type MeshBasicMaterial } from 'three';
 import type { GameEvent, ObjectId, PlayerId, PlayerView } from '@mtg3d/engine';
-import { displayName } from '@mtg3d/cards';
+import { CARDS, KW_ES, displayName, spanish } from '@mtg3d/cards';
 import { cardImage } from '../net';
 import { CardImage } from '../CardImage';
 import type { CardMenu } from '../Game';
@@ -43,6 +43,18 @@ export function Table3D({ view, events, usable, selected, onCardClick, names, hi
   const [hover, setHover] = useState<Placement | null>(null);
   const placements = layoutTable(view, usable, selected, hover?.inHand ? hover.key : null);
   const [pinned, setPinned] = useState<Placement | null>(null);
+  // A card held down (or right-clicked) comes up big in the middle of the table, to read it.
+  const [zoom, setZoom] = useState<{ p: Placement; sticky: boolean } | null>(null);
+  useEffect(() => {
+    if (!zoom) return undefined;
+    const close = () => { setZoom(null); };
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') close(); };
+    // A held card closes when let go anywhere; a right-clicked one at the next click.
+    const ev = zoom.sticky ? 'pointerdown' : 'pointerup';
+    const t = setTimeout(() => { window.addEventListener(ev, close); }, 0); // not the click that opened it
+    window.addEventListener('keydown', onKey);
+    return () => { clearTimeout(t); window.removeEventListener(ev, close); window.removeEventListener('keydown', onKey); };
+  }, [zoom]);
   const controls = useRef<{ reset: () => void; enabled: boolean } | null>(null);
   const shown = hover ?? (pinned && placements.find((p) => p.key === pinned.key)) ?? null;
   const me = view.viewer;
@@ -77,7 +89,7 @@ export function Table3D({ view, events, usable, selected, onCardClick, names, hi
   }, [events]);
 
   return (
-    <div className="table3d">
+    <div className="table3d" onContextMenu={(e) => { e.preventDefault(); }}>
       {/* Renders on demand: only while something moves, glows or loads, so a quiet table costs nothing. */}
       <Canvas frameloop="demand" shadows dpr={[1, 1.75]} camera={{ fov: 42, near: 0.5, far: 200, position: SEAT.toArray() }} gl={{ antialias: true }}>
         <color attach="background" args={['#070b0a']} />
@@ -107,16 +119,17 @@ export function Table3D({ view, events, usable, selected, onCardClick, names, hi
             }}
             onDrag={(on) => { if (controls.current) controls.current.enabled = !on; }}
             onHover={(on) => { setHover(on && p.card ? p : null); }}
+            onZoom={(on, sticky) => { setZoom(on && p.card ? { p, sticky } : null); }}
             onPick={() => {
               if (!p.card) return;
               // A card you can use (or have chosen) acts; any other card pins its preview.
               if (usable.has(p.key) || selected.has(p.key)) onCardClick(p.key); else setPinned(pinned?.key === p.key ? null : p);
             }} />
         ))}
-        {hover && hints?.get(hover.key) && !menu && (
+        {hover && !menu && !zoom && (
           <Html position={[hover.x, hover.inHand ? hover.y + 5.4 : hover.y + 0.4, hover.inHand ? hover.z + 1.2 : hover.z - Math.sign(hover.z || 1) * (CARD_H / 2 + 0.2)]}
             center zIndexRange={[20, 10]} className="card-hint" style={{ pointerEvents: 'none' }}>
-            {hints.get(hover.key)}
+            {hints?.get(hover.key) ?? 'Mantén pulsado para leerla'}
           </Html>
         )}
         {menu && (() => {
@@ -136,9 +149,10 @@ export function Table3D({ view, events, usable, selected, onCardClick, names, hi
       <div className="hud-cameras">
         <button onClick={() => { controls.current?.reset(); }} title="Volver a tu asiento">Recentrar</button>
       </div>
-      {shown?.card && (
+      {zoom?.p.card && <CardZoom p={zoom.p} />}
+      {shown?.card && !zoom && (
         <aside className="hud-preview" aria-live="polite" key={shown.card}>
-          <CardImage name={displayName(shown.card)} src={cardImage(shown.card)} key={shown.card} />
+          <CardImage name={shown.card} src={cardImage(shown.card)} key={shown.card} />
           <p><b>{displayName(shown.card)}</b>{shown.badges.length > 0 && <> · {shown.badges.join(' · ')}</>}</p>
         </aside>
       )}
@@ -280,10 +294,34 @@ const LAND_FX = 0.45; // seconds of the ring a card leaves when it is put down o
 const CARRY = new Plane(new Vector3(0, 1, 0), -1.4);
 const DROP_Z = 10.2;
 
-function Card3D({ p, sleeve, spawn, positions, hitAt, lungeAt, clickable, draggable, onDrop, onDrag, onHover, onPick }: {
+/** A card read up close: its image, and its Spanish text, abilities and counters beside it. */
+function CardZoom({ p }: { p: Placement }) {
+  const name = p.card ?? '';
+  const es = spanish(name);
+  const keywords = CARDS.get(name)?.keywords ?? [];
+  return (
+    <div className="card-zoom" role="dialog" aria-label={displayName(name)}>
+      <CardImage name={name} src={cardImage(name)} />
+      <div className="card-zoom-text">
+        <h2>{displayName(name)}</h2>
+        {es?.type && <p className="muted">{es.type}</p>}
+        {keywords.length > 0 && <p className="chips">{keywords.map((k) => <span key={k}>{KW_ES[k] ?? k}</span>)}</p>}
+        {es?.text && es.text.split('\n').map((l) => <p key={l}>{l}</p>)}
+        {p.badges.length > 0 && <p className="chips state">{p.badges.map((b) => <span key={b}>{b}</span>)}</p>}
+        <p className="muted small">Suelta para volver a la mesa.</p>
+      </div>
+    </div>
+  );
+}
+
+function Card3D({ p, sleeve, spawn, positions, hitAt, lungeAt, clickable, draggable, onDrop, onDrag, onHover, onPick, onZoom }: {
   p: Placement; sleeve: string; spawn: (p: Placement) => { at: Vector3; faceDown: boolean }; positions: Map<string, Vector3>; hitAt: number | undefined; lungeAt: number | undefined;
   clickable: boolean; draggable: boolean; onDrop: (at: Vector3) => void; onDrag: (on: boolean) => void; onHover: (on: boolean) => void; onPick: () => void;
+  onZoom: (on: boolean, sticky: boolean) => void;
 }) {
+  const holding = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const zoomed = useRef(false);
+  const stopHolding = () => { if (holding.current) clearTimeout(holding.current); holding.current = null; };
   const drag = useRef<{ at: Vector3; from: Vector3; moved: boolean } | null>(null);
   const justDragged = useRef(false);
   const ref = useRef<Group>(null);
@@ -380,28 +418,36 @@ function Card3D({ p, sleeve, spawn, positions, hitAt, lungeAt, clickable, dragga
     <group ref={hit}
       onPointerOver={(e) => { e.stopPropagation(); setHovered(true); onHover(true); if (clickable) document.body.style.cursor = 'pointer'; }}
       onPointerOut={() => { setHovered(false); onHover(false); document.body.style.cursor = ''; }}
+      onContextMenu={(e) => { e.stopPropagation(); onZoom(true, true); }}
       onPointerDown={(e: ThreeEvent<PointerEvent>) => {
+        if (e.nativeEvent.button === 0) holding.current = setTimeout(() => { zoomed.current = true; onZoom(true, false); }, 380);
         if (!draggable) return; // any card in hand can be picked up; only a playable one is played when let go
         e.stopPropagation();
         (e.target as Element).setPointerCapture(e.pointerId);
-        const from = ref.current?.position.clone() ?? new Vector3();
-        drag.current = { at: from.clone(), from, moved: false };
+        // "Moved" is measured from where the pointer went down, not from the (lifted) card.
+        const from = e.ray.intersectPlane(CARRY, new Vector3()) ?? ref.current?.position.clone() ?? new Vector3();
+        drag.current = { at: ref.current?.position.clone() ?? from.clone(), from, moved: false };
         onDrag(true);
       }}
       onPointerMove={(e: ThreeEvent<PointerEvent>) => {
         const d = drag.current;
         if (!d || !e.ray.intersectPlane(CARRY, d.at)) return;
         d.moved ||= Math.hypot(d.at.x - d.from.x, d.at.z - d.from.z) > 0.8;
+        if (d.moved) { stopHolding(); if (zoomed.current) { zoomed.current = false; onZoom(false, false); } }
         invalidate();
       }}
       onPointerUp={(e: ThreeEvent<PointerEvent>) => {
+        stopHolding();
+        const read = zoomed.current; // held to read it: the click that follows does nothing
+        zoomed.current = false;
+        if (read) justDragged.current = true;
         const d = drag.current;
         const g = ref.current;
         if (!d || !g) return;
         (e.target as Element).releasePointerCapture(e.pointerId);
         drag.current = null;
         onDrag(false);
-        justDragged.current = d.moved;
+        justDragged.current = d.moved || read;
         // Back towards the hand from where it was let go; if it was played, the server moves it to the table first.
         base.current.copy(g.position);
         tween.current = { from: g.position.clone(), to: new Vector3(x, y, z), qFrom: g.quaternion.clone(), qTo: orientation(p), t0: now(), dur: reducedMotion ? 0 : 0.3, arc: 0, lands: false };
