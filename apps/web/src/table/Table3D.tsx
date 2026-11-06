@@ -274,7 +274,7 @@ function SpellParticles({ kind }: { kind: keyof typeof MAGIC }) {
     g.setAttribute('color', new BufferAttribute(new Float32Array(N * 3), 3));
     return g;
   }, []);
-  const seeds = useMemo(() => Array.from({ length: N }, () => ({ a: Math.random() * Math.PI * 2, r: 0.6 + Math.random() * 2.6, phase: Math.random(), speed: 0.7 + Math.random() * 0.6 })), []);
+  const seeds = useMemo(() => Array.from({ length: N }, () => ({ a: Math.random() * Math.PI * 2, r: 1.9 + Math.random() * 1.6, phase: Math.random(), speed: 0.7 + Math.random() * 0.6 })), []);
   const base = useMemo(() => new ThreeColor(m?.color), [m]);
   useFrame(() => {
     if (!m) return;
@@ -285,7 +285,7 @@ function SpellParticles({ kind }: { kind: keyof typeof MAGIC }) {
       const life = (t * sd.speed * m.rate + sd.phase) % 1;
       const sway = Math.sin(t * 1.4 + sd.a * 3) * m.sway * life;
       pos.setXYZ(i, Math.cos(sd.a) * sd.r + sway, 0.1 + life * m.rise, Math.sin(sd.a) * sd.r + sway * 0.5);
-      const fade = Math.min(1, life * 5) * (1 - life); // fades in quickly, out slowly
+      const fade = 0.6 * Math.min(1, life * 5) * (1 - life); // fades in quickly, out slowly
       col.setXYZ(i, base.r * fade, base.g * fade, base.b * fade);
     });
     pos.needsUpdate = true;
@@ -376,7 +376,7 @@ function SpellCircle({ color }: { color: keyof typeof MAGIC }) {
     m.rotation.z = reducedMotion ? 0 : age * 0.35;
     const k = Math.min(1, age / 0.4); // grows in
     m.scale.setScalar(0.6 + 0.4 * k);
-    (m.material as MeshBasicMaterial).opacity = k * (0.7 + 0.15 * Math.sin(age * 3));
+    (m.material as MeshBasicMaterial).opacity = k * (0.5 + 0.1 * Math.sin(age * 3));
     if (!reducedMotion) invalidate(); // turning: draws continuously, but only while the stack is not empty
   });
   return (
@@ -529,12 +529,12 @@ function Card3D({ p, sleeve, spawn, positions, hitAt, lungeAt, clickable, dragga
     if (hit.current) {
       hit.current.position.copy(base.current);
       hit.current.quaternion.copy(g.quaternion);
-      hit.current.scale.setScalar(p.inHand ? 1.3 : 1);
+      hit.current.scale.setScalar(p.scale ?? (p.inHand ? 1.3 : 1));
     }
     // Hover: a held card rises out of the fan towards you; a card on the table lifts a little.
     const k = reducedMotion ? 1 : 0.2;
     lift.current = MathUtils.lerp(lift.current, hovered && t === 1 ? 1 : 0, k);
-    g.scale.setScalar(p.inHand ? 1.3 + lift.current * 0.35 : 1 + lift.current * 0.06); // held cards are nearer to you, so bigger
+    g.scale.setScalar(p.inHand ? 1.3 + lift.current * 0.35 : (p.scale ?? 1) + lift.current * 0.06); // held cards are nearer to you, so bigger
     g.position.y += lift.current * (p.inHand ? 1.5 : 0.25);
     if (p.inHand) g.position.z += lift.current * 1.1; // towards you, so it comes out in front of its neighbours
     // Damage: a short shake.
@@ -548,7 +548,7 @@ function Card3D({ p, sleeve, spawn, positions, hitAt, lungeAt, clickable, dragga
       g.position.z -= Math.sign(base.current.z || 1) * k * 1.4;
       g.position.y += k * 0.5;
     }
-    if (glow.current) glow.current.opacity = 0.8;
+    if (glow.current) glow.current.opacity = 0.5;
     const shaking = hitAt !== undefined && now() - hitAt < 0.5;
     const settling = Math.abs(lift.current - (hovered ? 1 : 0)) > 0.002;
     if (t < 1 || settling || shaking || landing || lunging) invalidate(); // keep drawing while this card moves
@@ -604,7 +604,7 @@ function Card3D({ p, sleeve, spawn, positions, hitAt, lungeAt, clickable, dragga
     <group ref={ref}>
       {color && (
         <mesh rotation-x={-Math.PI / 2} position-y={-SLEEVE_T / 2 - 0.002}>
-          <planeGeometry args={[CARD_W + 0.4, CARD_H + 0.4]} />
+          <planeGeometry args={[CARD_W + 0.26, CARD_H + 0.26]} />
           <meshBasicMaterial ref={glow} color={color} alphaMap={alpha} transparent blending={AdditiveBlending} depthWrite={false} toneMapped={false} />
         </mesh>
       )}
@@ -619,8 +619,8 @@ function Card3D({ p, sleeve, spawn, positions, hitAt, lungeAt, clickable, dragga
       {/* Faces: mostly the image as published (emissive), with a touch of the lamp's light and its gloss on top. */}
       <mesh rotation-x={-Math.PI / 2} position-y={SLEEVE_T / 2 + 0.001}>
         <planeGeometry args={[CARD_W, CARD_H]} />
-        <meshStandardMaterial map={front} emissiveMap={front} emissive="#ffffff" emissiveIntensity={0.78} color="#6a6a6a"
-          roughness={0.34} metalness={0} envMapIntensity={0.45} alphaMap={alpha} alphaTest={0.5} toneMapped={false} />
+        <meshStandardMaterial map={front} emissiveMap={front} emissive="#ffffff" emissiveIntensity={0.9} color="#3a3a3a"
+          roughness={0.78} metalness={0} envMapIntensity={0.08} alphaMap={alpha} alphaTest={0.5} toneMapped={false} />
       </mesh>
       <mesh rotation-x={Math.PI / 2} position-y={-SLEEVE_T / 2 - 0.001}>
         <planeGeometry args={[CARD_W, CARD_H]} />

@@ -25,6 +25,8 @@ export interface Placement {
   roll?: number;
   /** Held in a hand (lifts towards the viewer on hover). */
   inHand?: boolean;
+  /** Drawn bigger than a card on the table (a spell being cast is held up for both players to read). */
+  scale?: number;
   badges: string[];
   /** +1/+1 counters, shown as glass beads on the card (as players use). */
   beads?: number;
@@ -192,7 +194,7 @@ export function layoutTable(view: PlayerView, playable: ReadonlySet<ObjectId> = 
   // The stack: spells hang above the middle of the table, the newest highest, tilted towards the viewer.
   view.stack.forEach((e, i) => {
     out.push({
-      key: e.id, card: e.card, owner: e.controller, x: i * 0.9 - (view.stack.length - 1) * 0.45, y: 1.6 + i * 0.25, z: 0.2 + i * 0.12, yaw: 0, tilt: 0.75,
+      key: e.id, card: e.card, owner: e.controller, x: i * 1.4 - (view.stack.length - 1) * 0.7, y: 2.6 + i * 0.3, z: 0.4 + i * 0.15, yaw: 0, tilt: 0.95, scale: 1.7,
       badges: e.kind === 'ability' ? ['habilidad'] : [], highlight: null,
     });
   });
