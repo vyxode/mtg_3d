@@ -618,3 +618,10 @@ kbd { font: .72rem var(--sans); opacity: .7; margin-left: 6px; border: 1px solid
 .card-zoom img { animation: zoom-card .22s cubic-bezier(.2, 1.2, .4, 1); }
 @keyframes zoom-card { from { transform: translateY(40px) scale(.85); } }
 @media (max-width: 760px) { .card-zoom { flex-direction: column; gap: 12px; } .card-zoom img, .card-zoom .card-fallback { height: min(56vh, 460px); } }
+
+/* Damage rising from a card */
+.dmg-float {
+  font: 800 1.9rem var(--serif); color: #ff6b4a; white-space: nowrap;
+  text-shadow: 0 2px 0 #3a0d06, 0 0 14px rgba(255, 90, 50, .7); animation: dmg-float 1.3s ease-out forwards;
+}
+@keyframes dmg-float { 0% { opacity: 0; transform: translateY(10px) scale(.6); } 15% { opacity: 1; transform: translateY(0) scale(1.15); } 100% { opacity: 0; transform: translateY(-46px) scale(1); } }

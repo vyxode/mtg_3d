@@ -1,14 +1,14 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type RefObject } from 'react';
 import { Canvas, useFrame, useThree, type ThreeEvent } from '@react-three/fiber';
 import { Environment, Html, Lightformer, OrbitControls, QuadraticBezierLine } from '@react-three/drei';
-import { AdditiveBlending, ExtrudeGeometry, MathUtils, Plane, Quaternion, Shape, SphereGeometry, Vector3, type Group, type Mesh, type MeshBasicMaterial } from 'three';
+import { AdditiveBlending, BufferAttribute, BufferGeometry, Color as ThreeColor, ExtrudeGeometry, MathUtils, Plane, Quaternion, Shape, SphereGeometry, Vector3, type Group, type Mesh, type MeshBasicMaterial } from 'three';
 import type { GameEvent, ObjectId, PlayerId, PlayerView } from '@mtg3d/engine';
 import { CARDS, KW_ES, displayName, spanish } from '@mtg3d/cards';
 import { cardImage } from '../net';
 import { CardImage } from '../CardImage';
 import type { CardMenu } from '../Game';
 import { CARD_H, CARD_W, STACK_H, layoutTable, libraryPos, piles, type Placement } from './layout';
-import { BADGE_ASPECT, MAT_D, MAT_W, backTexture, badgeTexture, cardTexture, matTexture, onTextureLoaded, roundedCorners, runeTexture, woodTexture } from './textures';
+import { BADGE_ASPECT, MAT_D, MAT_W, backTexture, badgeTexture, cardTexture, dotTexture, lifeTexture, matTexture, onTextureLoaded, roundedCorners, runeTexture, woodTexture } from './textures';
 
 /** Each player's cards are in coloured sleeves, as at a real table. */
 const SLEEVES = { me: '#7a2a2c', them: '#284a72' } as const;
@@ -82,6 +82,21 @@ export function Table3D({ view, events, usable, selected, onCardClick, names, hi
     const t = now();
     return new Map(events.flatMap((e) => (e.kind === 'damage' && e.target.kind === 'object' ? [[e.target.id, t] as const] : [])));
   }, [events]);
+  // A permanent leaving the battlefield for the graveyard crumbles to dust; exiled, it vanishes in a flash of light.
+  const bursts = useMemo(() => {
+    const t = now();
+    return events.flatMap((e, i) => {
+      if (e.kind !== 'zoneChange' || e.fromZone !== 'battlefield' || (e.toZone !== 'graveyard' && e.toZone !== 'exile')) return [];
+      const at = positions.current.get(e.from)?.clone();
+      return at ? [{ key: `${e.from}-${String(i)}`, at, exile: e.toZone === 'exile', t0: t }] : [];
+    });
+  }, [events]);
+  // Damage dealt to a permanent rises from it as a number.
+  const damageNums = useMemo(() => events.flatMap((e, i) => {
+    if (e.kind !== 'damage' || e.target.kind !== 'object') return [];
+    const at = positions.current.get(e.target.id)?.clone();
+    return at ? [{ key: `${String(i)}-${e.target.id}-${String(now())}`, at, n: e.amount }] : [];
+  }), [events]);
   // A creature dealing combat damage lunges at the other side of the table.
   const lunges = useMemo(() => {
     const t = now();
@@ -143,7 +158,15 @@ export function Table3D({ view, events, usable, selected, onCardClick, names, hi
             </Html>
           );
         })()}
-        {view.stack.length > 0 && <SpellCircle />}
+        {view.stack.length > 0 && <SpellCircle color={spellColor(view.stack[view.stack.length - 1]?.card ?? '')} />}
+        {bursts.map((b) => <Burst key={b.key} at={b.at} exile={b.exile} t0={b.t0} />)}
+        {damageNums.map((d) => (
+          <Html key={d.key} position={[d.at.x, d.at.y + 0.8, d.at.z]} center zIndexRange={[25, 15]} className="dmg-float" style={{ pointerEvents: 'none' }}>
+            −{d.n}
+          </Html>
+        ))}
+        <LifePuck life={view.players[me].life} z={7.4} />
+        <LifePuck life={view.players[opp].life} z={-7.4} />
         <Arrows view={view} positions={positions.current} />
       </Canvas>
       <div className="hud-cameras">
@@ -226,7 +249,124 @@ function Mat({ side, name, tint }: { side: 1 | -1; name: string; tint: string })
 }
 
 /** While spells wait on the stack, a slow glowing circle turns on the felt beneath them, and lights the table. */
-function SpellCircle() {
+/** The colour of a spell's magic, from its mana cost (several colours or none: gold). */
+const MAGIC: Record<string, { color: string; rise: number; sway: number; size: number; rate: number }> = {
+  R: { color: '#ff7a2e', rise: 3.2, sway: 0.25, size: 0.16, rate: 0.9 }, // embers
+  G: { color: '#7ddc6a', rise: 1.6, sway: 1.1, size: 0.2, rate: 0.35 }, // drifting leaves
+  B: { color: '#b07ad8', rise: 1.2, sway: 0.5, size: 0.42, rate: 0.3 }, // smoke
+  W: { color: '#ffe9a8', rise: 2.2, sway: 0.15, size: 0.14, rate: 0.45 }, // motes of light
+  U: { color: '#6fb6ff', rise: 2.4, sway: 0.4, size: 0.18, rate: 0.6 }, // bubbles
+  gold: { color: '#ffcf7a', rise: 2.2, sway: 0.3, size: 0.16, rate: 0.5 },
+};
+function spellColor(card: string): keyof typeof MAGIC {
+  const cost = CARDS.get(card)?.manaCost;
+  const colors = cost ? (['W', 'U', 'B', 'R', 'G'] as const).filter((k) => (cost[k] ?? 0) > 0) : [];
+  return colors.length === 1 ? (colors[0] ?? 'gold') : 'gold';
+}
+
+/** Particles rising around the spell circle, in the spell's colour and manner. */
+function SpellParticles({ kind }: { kind: keyof typeof MAGIC }) {
+  const m = MAGIC[kind] ?? MAGIC.gold;
+  const N = 80;
+  const geo = useMemo(() => {
+    const g = new BufferGeometry();
+    g.setAttribute('position', new BufferAttribute(new Float32Array(N * 3), 3));
+    g.setAttribute('color', new BufferAttribute(new Float32Array(N * 3), 3));
+    return g;
+  }, []);
+  const seeds = useMemo(() => Array.from({ length: N }, () => ({ a: Math.random() * Math.PI * 2, r: 0.6 + Math.random() * 2.6, phase: Math.random(), speed: 0.7 + Math.random() * 0.6 })), []);
+  const base = useMemo(() => new ThreeColor(m?.color), [m]);
+  useFrame(() => {
+    if (!m) return;
+    const t = now();
+    const pos = geo.getAttribute('position') as BufferAttribute;
+    const col = geo.getAttribute('color') as BufferAttribute;
+    seeds.forEach((sd, i) => {
+      const life = (t * sd.speed * m.rate + sd.phase) % 1;
+      const sway = Math.sin(t * 1.4 + sd.a * 3) * m.sway * life;
+      pos.setXYZ(i, Math.cos(sd.a) * sd.r + sway, 0.1 + life * m.rise, Math.sin(sd.a) * sd.r + sway * 0.5);
+      const fade = Math.min(1, life * 5) * (1 - life); // fades in quickly, out slowly
+      col.setXYZ(i, base.r * fade, base.g * fade, base.b * fade);
+    });
+    pos.needsUpdate = true;
+    col.needsUpdate = true;
+  });
+  useEffect(() => () => { geo.dispose(); }, [geo]);
+  return (
+    <points geometry={geo}>
+      <pointsMaterial map={dotTexture()} size={m?.size ?? 0.16} vertexColors transparent depthWrite={false} blending={AdditiveBlending} toneMapped={false} />
+    </points>
+  );
+}
+
+/** A card leaving the battlefield: grey dust spreading and settling (graveyard) or a bright flash rising (exile). */
+function Burst({ at, exile, t0 }: { at: Vector3; exile: boolean; t0: number }) {
+  const N = 46, DUR = exile ? 0.7 : 1.1;
+  const geo = useMemo(() => {
+    const g = new BufferGeometry();
+    g.setAttribute('position', new BufferAttribute(new Float32Array(N * 3), 3));
+    g.setAttribute('color', new BufferAttribute(new Float32Array(N * 3), 3));
+    return g;
+  }, []);
+  const v = useMemo(() => Array.from({ length: N }, () => {
+    const a = Math.random() * Math.PI * 2, s = 0.6 + Math.random() * 1.6;
+    return { x: Math.cos(a) * s, y: (exile ? 2.5 : 0.6) + Math.random() * 1.2, z: Math.sin(a) * s * 1.3, ox: (Math.random() - 0.5) * CARD_W, oz: (Math.random() - 0.5) * CARD_H };
+  }), [exile]);
+  const tint = useMemo(() => new ThreeColor(exile ? '#fff1c2' : '#b3a794'), [exile]);
+  useFrame(({ invalidate }) => {
+    const age = now() - t0;
+    if (age > DUR || reducedMotion) return;
+    const pos = geo.getAttribute('position') as BufferAttribute;
+    const col = geo.getAttribute('color') as BufferAttribute;
+    const k = age / DUR;
+    v.forEach((p, i) => {
+      pos.setXYZ(i, at.x + p.ox + p.x * age, at.y + 0.1 + p.y * age - (exile ? 0 : 1.4 * age * age), at.z + p.oz + p.z * age);
+      const f = (1 - k) * (exile ? 1.2 : 0.7);
+      col.setXYZ(i, tint.r * f, tint.g * f, tint.b * f);
+    });
+    pos.needsUpdate = true;
+    col.needsUpdate = true;
+    invalidate();
+  });
+  useEffect(() => () => { geo.dispose(); }, [geo]);
+  return (
+    <points geometry={geo}>
+      <pointsMaterial map={dotTexture()} size={exile ? 0.22 : 0.3} vertexColors transparent depthWrite={false} blending={AdditiveBlending} toneMapped={false} />
+    </points>
+  );
+}
+
+/** A life counter by each mat, like the ones players keep: it flips over when the life total changes. */
+function LifePuck({ life, z }: { life: number; z: number }) {
+  const g = useRef<Group>(null);
+  const flipAt = useRef(-10);
+  const invalidate = useThree((st) => st.invalidate);
+  const first = useRef(true);
+  useEffect(() => { if (first.current) { first.current = false; return; } flipAt.current = now(); invalidate(); }, [life, invalidate]);
+  useFrame(() => {
+    const o = g.current;
+    if (!o) return;
+    const age = now() - flipAt.current;
+    const k = reducedMotion ? 1 : Math.min(1, age / 0.6);
+    o.rotation.x = easeInOut(k) * Math.PI * 2;
+    o.position.y = 0.17 + Math.sin(Math.PI * k) * 0.9;
+    if (k < 1) invalidate();
+  });
+  return (
+    <group position={[-13, 0, z]} rotation-y={Math.PI / 2}> {/* turned so the number reads from your seat */}
+      <group ref={g}>
+        <mesh castShadow receiveShadow>
+          <cylinderGeometry args={[0.95, 0.95, 0.34, 48]} />
+          <meshStandardMaterial attach="material-0" color="#8a6420" metalness={0.6} roughness={0.35} />
+          <meshStandardMaterial attach="material-1" map={lifeTexture(life)} roughness={0.4} envMapIntensity={0.6} />
+          <meshStandardMaterial attach="material-2" color="#3b2a14" roughness={0.6} />
+        </mesh>
+      </group>
+    </group>
+  );
+}
+
+function SpellCircle({ color }: { color: keyof typeof MAGIC }) {
   const disc = useRef<Mesh>(null);
   const born = useRef(now());
   useFrame(({ invalidate }) => {
@@ -245,7 +385,8 @@ function SpellCircle() {
         <planeGeometry args={[7, 7]} />
         <meshBasicMaterial map={runeTexture()} transparent opacity={0} blending={AdditiveBlending} depthWrite={false} toneMapped={false} />
       </mesh>
-      <pointLight position={[0, 0.7, 0]} intensity={7} distance={7} decay={1.4} color="#ffb85c" /> {/* low, so it lights the felt and not the face of the card */}
+      <pointLight position={[0, 0.7, 0]} intensity={7} distance={7} decay={1.4} color={MAGIC[color]?.color ?? '#ffb85c'} /> {/* low, so it lights the felt and not the face of the card */}
+      {!reducedMotion && <SpellParticles kind={color} />}
     </group>
   );
 }

@@ -233,3 +233,42 @@ export function runeTexture(): Texture {
   rune.colorSpace = SRGBColorSpace;
   return rune;
 }
+
+let dot: Texture | null = null;
+/** A soft round spot of light, for particles. */
+export function dotTexture(): Texture {
+  if (dot) return dot;
+  const [c, ctx] = canvas(64, 64);
+  const g = ctx.createRadialGradient(32, 32, 0, 32, 32, 32);
+  g.addColorStop(0, 'rgba(255,255,255,1)');
+  g.addColorStop(0.35, 'rgba(255,255,255,.55)');
+  g.addColorStop(1, 'rgba(255,255,255,0)');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, 64, 64);
+  dot = new CanvasTexture(c);
+  return dot;
+}
+
+const lives = new Map<number, Texture>();
+/** The face of a life counter: a big number on a dark disc with a brass ring. */
+export function lifeTexture(n: number): Texture {
+  const hit = lives.get(n);
+  if (hit) return hit;
+  const [c, ctx] = canvas(256, 256);
+  const g = ctx.createRadialGradient(128, 110, 10, 128, 128, 128);
+  g.addColorStop(0, '#2a3a35');
+  g.addColorStop(1, '#0c1210');
+  ctx.fillStyle = g;
+  ctx.beginPath(); ctx.arc(128, 128, 128, 0, Math.PI * 2); ctx.fill();
+  ctx.strokeStyle = '#d4a24c'; ctx.lineWidth = 10;
+  ctx.beginPath(); ctx.arc(128, 128, 112, 0, Math.PI * 2); ctx.stroke();
+  ctx.fillStyle = n <= 5 ? '#ff8a6a' : '#f3ead6';
+  ctx.font = `700 ${String(Math.abs(n) >= 100 ? 92 : 128)}px Alegreya, Georgia, serif`;
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillText(String(n), 128, 138);
+  const tex = new CanvasTexture(c);
+  tex.colorSpace = SRGBColorSpace;
+  tex.anisotropy = 4;
+  lives.set(n, tex);
+  return tex;
+}
