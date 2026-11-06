@@ -11,4 +11,4 @@ export function registerCards(defs: readonly CardDef[]): void {
 export { KW_ES, compileOracle, type Compiled, type OracleCard } from './oracle';
 export { DEFS };
 export { PRESET_DECKS, validateCasualDeck } from './decks';
-export { displayName, spanish, type EsCard } from './i18n';
+export { displayName, registerSpanish, spanish, type EsCard } from './i18n';

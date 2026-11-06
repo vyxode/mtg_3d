@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { entriesOf, type ScryCard } from './es-cards';
+import { entriesOf, pickSpanish, type ScryCard } from './es-cards';
 
 describe('Spanish printings', () => {
   it('keys each face by its English name and keeps the printed Spanish name, type, text and image', () => {
@@ -19,5 +19,15 @@ describe('Spanish printings', () => {
       ['Esper Origins', 'Orígenes de Esper', 'a.jpg'],
       ['Summon: Esper Maduin', 'Invocación: Maduin de Esper', 'b.jpg'],
     ]);
+  });
+
+  it('keeps the newest translated printing of each wanted card, and nothing else', () => {
+    const out = {};
+    pickSpanish([
+      { lang: 'es', name: 'Test Bear', printed_name: 'Oso de prueba', printed_type_line: 'Criatura — Oso', image_uris: { normal: 'new.jpg' } },
+      { lang: 'es', name: 'Test Bear', printed_name: 'Oso viejo', printed_type_line: 'Criatura — Oso', image_uris: { normal: 'old.jpg' } },
+      { lang: 'es', name: 'Test Other', printed_name: 'Otra', printed_type_line: 'Tierra' },
+    ], new Set(['Test Bear']), out);
+    expect(out).toEqual({ 'Test Bear': { name: 'Oso de prueba', type: 'Criatura — Oso', text: '', image: 'new.jpg' } });
   });
 });

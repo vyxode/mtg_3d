@@ -1,14 +1,15 @@
 name: Cartas de Magic
 
-# Compiles every card the engine can play from Scryfall's Oracle data and commits apps/web/public/oracle.json.
-# Runs by hand, every week (new sets), and whenever the Oracle compiler changes.
+# Compiles every card the engine can play from Scryfall's Oracle data (apps/web/public/oracle.json), then fetches their
+# Spanish printings (apps/web/public/es.json), and commits both. Runs by hand, every week (new sets), and whenever the
+# Oracle compiler, the Spanish fetch or the hand-written cards change.
 on:
   workflow_dispatch:
   schedule:
     - cron: '17 4 * * 1'
   push:
     branches: [main]
-    paths: ['packages/cards/src/oracle.ts', 'apps/server/src/oracle-cards.ts']
+    paths: ['packages/cards/src/oracle.ts', 'packages/cards/src/defs.ts', 'apps/server/src/oracle-cards.ts', 'apps/server/src/es-cards.ts']
 
 permissions:
   contents: write
@@ -25,9 +26,10 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: NODE_OPTIONS=--max-old-space-size=4096 pnpm cards:oracle
+      - run: pnpm cards:es
       - name: Commit if anything changed
         run: |
-          git add apps/web/public/oracle.json
+          git add apps/web/public/oracle.json apps/web/public/es.json
           git diff --cached --quiet && exit 0
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
