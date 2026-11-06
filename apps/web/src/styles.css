@@ -625,3 +625,7 @@ kbd { font: .72rem var(--sans); opacity: .7; margin-left: 6px; border: 1px solid
   text-shadow: 0 2px 0 #3a0d06, 0 0 14px rgba(255, 90, 50, .7); animation: dmg-float 1.3s ease-out forwards;
 }
 @keyframes dmg-float { 0% { opacity: 0; transform: translateY(10px) scale(.6); } 15% { opacity: 1; transform: translateY(0) scale(1.15); } 100% { opacity: 0; transform: translateY(-46px) scale(1); } }
+
+/* Practice without a friend */
+.practice { display: flex; flex-direction: column; gap: 8px; }
+.practice-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }

@@ -23,8 +23,16 @@ if (P2P) {
   send = (event, payload) => new Promise((resolve) => { io_.emit(event, payload, resolve); });
 }
 
+/** A practice game (see practice.ts) answers everything locally while it lasts. */
+let practice: ((event: string, payload: unknown) => Promise<unknown>) | null = null;
+export async function startPractice(mode: 'bot' | 'self'): Promise<void> {
+  const { createPractice } = await import('./practice');
+  practice = createPractice(socket, mode);
+}
+export const inPractice = (): boolean => practice !== null;
+
 export function ask<T>(event: ClientMessage, payload: unknown): Promise<T> {
-  return send(event, payload) as Promise<T>;
+  return (practice ?? send)(event, payload) as Promise<T>;
 }
 
 const SESSION_KEY = 'mtg3d.session';

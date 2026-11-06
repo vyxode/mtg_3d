@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { CARDS, PRESET_DECKS } from '@mtg3d/cards';
 import type { GameUpdate, JoinAck, RoomState } from '@mtg3d/protocol';
-import { P2P, ask, cardImage, loadSession, saveSession, socket } from './net';
+import { P2P, ask, cardImage, inPractice, loadSession, saveSession, socket, startPractice } from './net';
 import { CardImage } from './CardImage';
 import { Game } from './Game';
 import { DeckBuilder } from './DeckBuilder';
@@ -83,14 +83,18 @@ function Lobby({ onError }: { onError: (e: string | null) => void }) {
   const [name, setName] = useState(() => { try { return localStorage.getItem('mtg3d.name') ?? ''; } catch { return ''; } });
   const [code, setCode] = useState(invitedCode);
   const [busy, setBusy] = useState(false);
-  const join = async (event: 'room:create' | 'room:join') => {
+  const join = async (event: 'room:create' | 'room:join', who = name.trim()) => {
     setBusy(true);
-    try { localStorage.setItem('mtg3d.name', name.trim()); } catch { /* storage blocked */ }
-    const r = await ask<JoinAck>(event, event === 'room:create' ? { name: name.trim() } : { name: name.trim(), code });
+    try { localStorage.setItem('mtg3d.name', who); } catch { /* storage blocked */ }
+    const r = await ask<JoinAck>(event, event === 'room:create' ? { name: who } : { name: who, code });
     setBusy(false);
     if (!r.ok) { onError(r.error); return; }
     onError(null);
-    saveSession({ code: r.code, token: r.token });
+    if (!inPractice()) saveSession({ code: r.code, token: r.token }); // a practice room lives only in this page
+  };
+  const practise = async (mode: 'bot' | 'self') => {
+    await startPractice(mode);
+    await join('room:create', name.trim() || 'Yo');
   };
   const invited = invitedCode() !== '';
   return (
@@ -116,6 +120,15 @@ function Lobby({ onError }: { onError: (e: string | null) => void }) {
           <label>Código de invitación <input value={code} onChange={(e) => { setCode(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '')); }} maxLength={6} autoComplete="off" spellCheck={false} className="code-input" /></label>
           <button type="button" className={invited ? 'primary' : ''} disabled={!name.trim() || code.length !== 6 || busy} onClick={() => void join('room:join')}>Unirse</button>
         </div>
+        {!invited && (
+          <div className="practice">
+            <p className="or">o practica solo, sin conexión</p>
+            <div className="practice-row">
+              <button type="button" disabled={busy} onClick={() => void practise('bot')}>Contra la máquina</button>
+              <button type="button" disabled={busy} onClick={() => void practise('self')}>Con las dos manos</button>
+            </div>
+          </div>
+        )}
       </form>
     </main>
   );
